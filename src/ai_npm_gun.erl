@@ -9,9 +9,10 @@ fetch_without_cache(Ctx)->
     case gun:await(ConnPid, StreamRef) of
         {response, fin, Status, Headers} ->
             {no_data,Status,Headers};
-        {response, nofin, Status, Headers} ->
+        {response, nofin, _Status, Headers} ->
             {ok, Body} = gun:await_body(ConnPid, StreamRef),
-            {data,Status,Headers,Body}
+            ai_npm_ets_cache:put(ai_npm_ets_cache,Url,{Headers,Body}),
+            ok
     end.
 
 open_remote(Ctx)->
