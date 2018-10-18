@@ -5,8 +5,8 @@
 -spec start(inet:port_number()) -> {ok, pid()}.
 start(Port) ->
     Router =  {'_', [
-                     {"/:pkg_name/[:version]",ai_npm_pkg_handler,[]},
-                     {"/:pkg_name/-/:tarball_name", ai_npm_pkg_handler, []}
+                     {"/:pkg/[:version]",ai_npm_pkg_handler,version},
+                     {"/:pkg/-/:tarball", ai_npm_pkg_handler,tarball}
                     ]},
     Dispatch = cowboy_router:compile([Router]),
     cowboy:start_clear(ai_npm_proxy_server,

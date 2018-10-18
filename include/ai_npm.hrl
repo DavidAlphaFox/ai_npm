@@ -1,13 +1,14 @@
 -record(package,{
-		key :: {list(),list()|undefined},
-		name :: list(),
-		meta :: term()	
-	}).
+                 key :: {binary(),binary()|undefined},
+                 name :: binary(),
+                 meta :: term()	
+                }).
 -record(package_cache,{
-	key :: {list(),list()|undefined},
-	date :: list(),
-	etag :: list(),
-	max_age :: integer(),
-	content_type :: list(),
-	last_modified :: list()
-	}).
+                       key :: {binary(),binary()|undefined},
+                       cache_key :: {binary(),binary()|undefined},
+                       date :: binary(),
+                       etag :: binary(),
+                       max_age :: integer(),
+                       content_type :: binary(),
+                       last_modified :: binary()
+                      }).
