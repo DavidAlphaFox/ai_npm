@@ -9,6 +9,6 @@
                        date :: binary(),
                        etag :: binary(),
                        max_age :: integer(),
-                       content_type :: binary(),
-                       last_modified :: binary()
+                       last_modified :: binary(),
+                       headers :: term()
                       }).

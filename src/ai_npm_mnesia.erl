@@ -55,7 +55,6 @@ try_hint_cache(Name,Version)->
 headers_to_fileds(Headers,Item)->    
     Need = fun({<<"date">>,V},Acc) ->Acc#package_cache{date = V};
               ({<<"etag">>,V},Acc) ->Acc#package_cache{etag = V};
-              ({<<"content-type">>,V},Acc) -> Acc#package_cache{content_type = V};
               ({<<"last-modified">>,V},Acc) -> Acc#package_cache{last_modified = V};
               ({<<"cache-control">>,V},Acc) ->
                    Parts = binary:split(V,<<"=">>),
@@ -70,7 +69,7 @@ headers_to_fileds(Headers,Item)->
     lists:foldl(Need,Item,Headers).
 add_to_cache(Name,Version,Headers,CacheKey)->
     Key = {Name,Version},
-    Item = headers_to_fileds(Headers,#package_cache{key = Key,cache_key = CacheKey}),
+    Item = headers_to_fileds(Headers,#package_cache{key = Key,cache_key = CacheKey,headers = Headers}),
     write(Item).
 refresh_headers(Name,Version,Headers)->
     C = hit_cache(Name,Version),
