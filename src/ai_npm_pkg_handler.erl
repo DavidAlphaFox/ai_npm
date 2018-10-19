@@ -29,7 +29,8 @@ fetch_without_cache(Path,Headers,Processor,Handler) ->
     end.
 
 clean_headers(Headers)-> 
-    Exclued = [<<"set-cookie">>,<<"etag">>,<<"last-modified">>],
+    Exclued = [<<"set-cookie">>,<<"etag">>,<<"last-modified">>,
+               <<"cf-cache-status">>,<<"accept-ranges">>,<<"cf-ray">>,<<"expect-ct">>],
     NewHeaders = lists:filter(fun({Key,_V})-> not lists:member(Key,Exclued) end,Headers),
     maps:from_list(NewHeaders).
 
@@ -50,6 +51,7 @@ fetch_with_cache(Req)->
                                      ai_npm_mnesia:add_to_cache(Name,Version,ResHeaders,{Name,Version}),
                                      ok;
                                 true ->
+                                     io:format("process respose no_data {~p,~p} ~p~n",[Name,Version,Status]),
                                      {no_data,Status,ResHeaders}
                              end
                      end,
@@ -66,7 +68,7 @@ fetch_with_cache(Req)->
             NewHeaders = [{<<"if-none-match">>,C#package_cache.etag} | maps:to_list(Headers)],
             fetch_without_cache(Path,NewHeaders,CacheProcessor,Handler);
         {ok,C} ->
-            io:format("cache hit {~p,~p} ~p~n",[Name,Version,C]),
+            io:format("cache hit {~p,~p} ~n",[Name,Version]),
             {ok,Data} =ai_npm_mnesia:retrive_data(C#package_cache.cache_key),
             {ok,C#package_cache.headers,Data}
     end.
