@@ -1,14 +1,13 @@
 -record(package,{
-                 key :: {binary(),binary()|undefined},
-                 name :: binary(),
-                 meta :: term()	
+                 id :: {binary(),binary()| undefined}, %% {_id,_rev},_id is the name of package
+                 meta :: term()	%% the json content of the package
                 }).
--record(package_cache,{
-                       key :: {binary(),binary()|undefined},
-                       cache_key :: {binary(),binary()|undefined},
-                       date :: binary(),
-                       etag :: binary(),
-                       max_age :: integer(),
-                       last_modified :: binary(),
-                       headers :: term()
-                      }).
+-record(package_index,{name :: binary(),current :: binary()}).
+-record(cache,{ key :: binary(), 
+                cache_key :: term(),
+                date :: binary(),
+                etag :: binary(),
+                max_age :: integer(),
+                last_modified :: binary(),
+                headers :: term()
+              }).

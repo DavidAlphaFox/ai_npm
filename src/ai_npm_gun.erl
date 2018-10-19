@@ -30,6 +30,10 @@ remote_protocol(Ctx) -> proplists:get_value(uplink_protocol,Ctx,"https").
 tls("https")->#{transport => tls};
 tls(_) ->#{}.    
 
+
+
+
+
 uplink_headers(Headers,Ctx)->
     NewHeaders = lists:filter(fun({Key,_Value}) -> Key /= <<"host">> end,Headers),
     Host = remote_host(Ctx),
