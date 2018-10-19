@@ -22,7 +22,7 @@ init(Req, tarball) ->
 
 fetch_without_cache(Path,Headers,Processor,Handler) ->
     Ctx = [{url,Path},{headers,Headers},{processor,Processor}],
-    case ai_idempotence_pool:task_add(pkg,{ai_npm_gun,fetch_without_cache,[Ctx]}) of
+    case ai_idempotence_pool:task_add(pkg,Path,{ai_npm_gun,fetch_without_cache,[Ctx]}) of
         {done,ok} -> Handler();
         {done,{no_data,Status,ResHeaders}} -> {no_data,Status,ResHeaders};
         {error,_Error,_Reason} -> not_found
