@@ -1,7 +1,7 @@
 -module(ai_npm_mnesia).
 -include("ai_npm.hrl").
 
--export([try_hint_cache/2,add_to_cache/4]).
+-export([try_hint_cache/2,add_to_cache/4,refresh_headers/3]).
 -export([retrive_data/1,add_data/3]).
 
 transaction(F) ->
@@ -9,9 +9,9 @@ transaction(F) ->
         {atomic, Result} -> Result;
         {aborted, _Reason} -> []
     end.	
-find_by_key(Key) ->
+find_by_key(Table,Key) ->
     F = fun() ->
-                mnesia:read(Key)
+                mnesia:read(Table,Key)
         end,
     transaction(F).
 
@@ -27,8 +27,8 @@ write(Rec) ->
 
 hit_cache(Name,Version)->
     Key = {Name,Version},
-    case find_by_key(Key) of
-        [] -> not_fond;
+    case find_by_key(package_cache,Key) of
+        [] -> not_found;
         [C] -> C
     end.
 
@@ -48,7 +48,7 @@ cache_validate(#package_cache{date = Date,max_age = MaxAge} = C)->
 
 try_hint_cache(Name,Version)->
     case hit_cache(Name,Version) of
-        not_fond -> not_fond;
+        not_found -> not_found;
         C -> cache_validate(C)
     end.
 
@@ -72,9 +72,13 @@ add_to_cache(Name,Version,Headers,CacheKey)->
     Key = {Name,Version},
     Item = headers_to_fileds(Headers,#package_cache{key = Key,cache_key = CacheKey}),
     write(Item).
+refresh_headers(Name,Version,Headers)->
+    C = hit_cache(Name,Version),
+    Item = headers_to_fileds(Headers,C),
+    write(Item).
 retrive_data(CacheKey)->
-    [C] = find_by_key(CacheKey),
-    C.
+    [C] = find_by_key(package,CacheKey),
+    {ok,C}.
 add_data(CacheKey,Name,Meta)->
     Item = #package{ key = CacheKey,name = Name,meta = Meta},
     write(Item).
