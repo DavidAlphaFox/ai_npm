@@ -108,7 +108,7 @@ cache_handler(Scheme,Host,Port,Version,Path)->
 
 fetch_without_cache(Path,Headers,Processor,Handler) ->
     Ctx = [{url,Path},{headers,Headers},{processor,Processor}],
-    case ai_idempotence_pool:task_add(pkg,Path,{ai_npm_gun,fetch_package,[Ctx]}) of
+    case ai_idempotence_pool:task_add(pkg,Path,{ai_npm_fetcher,fetch_package,[Ctx]}) of
         {done,ok} -> Handler();
         {done,{no_data,Status,ResHeaders}} -> {no_data,Status,ResHeaders};
         {done,Result}-> Result;
@@ -119,6 +119,5 @@ clean_headers(Headers)->
     Exclued = [<<"set-cookie">>,<<"etag">>,<<"last-modified">>,<<"content-encoding">>,
                <<"cf-cache-status">>,<<"accept-ranges">>,<<"cf-ray">>,<<"expect-ct">>],
     NewHeaders = [{<<"content-encoding">>,<<"identity">>} | lists:filter(fun({Key,_V})-> not lists:member(Key,Exclued) end,Headers)],
-    
     maps:from_list(NewHeaders).
 
