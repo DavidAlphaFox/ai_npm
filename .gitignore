@@ -20,3 +20,4 @@ log
 .erlang.mk
 deps
 Mnesia.*
+priv
