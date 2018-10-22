@@ -9,14 +9,5 @@ start_link() ->
 	supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    CacheOpts = [
-                 {name, ai_npm_ets_cache},
-                 {ttl, ?DEFAULT_NPM_CACHE_TTL},
-                 {size, ?DEFAULT_NPM_CACHE_SIZE}
-                ],
-    Procs = [{
-               ai_npm_ets_cache,
-               {ai_npm_ets_cache, start_link, [CacheOpts]},
-               permanent, 2000, worker, dynamic
-              }],
+    Procs = [],
     {ok, {{one_for_one, 1, 5}, Procs}}.

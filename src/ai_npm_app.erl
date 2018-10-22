@@ -19,7 +19,9 @@ stop(_State) ->
     ok.
 create_db()->
     {atomic,ok} = mnesia:create_table(package,[{disc_copies, [node()]},  
-                         {attributes, record_info(fields, package)}]),
-    {atomic,ok} = mnesia:create_table(package_cache,  [{disc_copies, [node()]},  
-                         {attributes, record_info(fields, package_cache)}]),
+                                               {attributes, record_info(fields, package)}]),
+    {atomic,ok} = mnesia:create_table(cache,  [{disc_copies, [node()]},  
+                                                       {attributes, record_info(fields, cache)}]),
+    {atomic,ok} = mnesia:create_table(package_private,  [{disc_copies, [node()]},  
+                                                       {attributes, record_info(fields, package_private)}]),
     ok.

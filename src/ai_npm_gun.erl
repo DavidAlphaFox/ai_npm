@@ -1,7 +1,7 @@
 -module(ai_npm_gun).
--export([fetch_without_cache/1]).
+-export([fetch_package/1]).
 
-fetch_without_cache(Ctx)->
+fetch_package(Ctx)->
     {ok,ConnPid} = open_remote(Ctx),
     {ok, _Protocol} = gun:await_up(ConnPid),
     Url = proplists:get_value(url,Ctx),
