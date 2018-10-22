@@ -23,15 +23,18 @@ fetch_with_cache(Req)->
     Name = cowboy_req:binding(package,Req),
     Version = cowboy_req:binding(version,Req,undefined),
     Headers = cowboy_req:headers(Req),
+    Scheme = cowboy_req:scheme(Req),
+    Host = cowboy_req:host(Req),
+    Port = cowboy_req:port(Req),
     Path = <<"/",Name/binary>>,
     %%Path = cowboy_req:path(Req),
     CacheProcessor = cache_processor(Name,Version,Path),
-    Handler = cache_handler(Version,Path),
+    Handler = cache_handler(Scheme,Host,Port,Version,Path),
     case ai_npm_mnesia_cache:try_hit_cache(Path) of
         not_found ->
             fetch_without_cache(Path,maps:to_list(Headers),CacheProcessor,Handler);
         {expired,C}->
-            NewHeaders = [{<<"if-none-match">>,C#cache.etag} | {<<"if-modified-since">>,C#cache.last_modified}] ++ maps:to_list(Headers),
+            NewHeaders = [{<<"if-none-match">>,C#cache.etag} , {<<"if-modified-since">>,C#cache.last_modified}] ++ maps:to_list(Headers),
             fetch_without_cache(Path,NewHeaders,CacheProcessor,Handler);
         {ok,_C} ->
             Handler()
@@ -44,8 +47,7 @@ cache_processor(Name,Version,Path)->
                            ID = proplists:get_value(<<"_id">>,Meta),
                            Rev = proplists:get_value(<<"_rev">>,Meta),
                            Key = {ID,Rev},
-                          %% Key = {Name,Version},
-                          {atomic,ok} = ai_npm_package:add_package(Key,Body),                           
+                           {atomic,ok} = ai_npm_package:add_package(Key,Body),                           
                            Key
                   end,
 
@@ -65,17 +67,36 @@ cache_processor(Name,Version,Path)->
             end
     end.
 
-cache_handler(Version,Path)->
+cache_handler(Scheme,Host,Port,Version,Path)->
+    ReplaceHostFun = fun(Package)->
+                             Dist = proplists:get_value(<<"dist">>,Package),
+                             Tarball = proplists:get_value(<<"tarball">>,Dist),
+                             %%{http,{undefined,"registry.npmjs.org",80},
+                              %%"/react/-/react-0.0.1.tgz",undefined,undefined} 
+                             {_S,_H,P,Q,F}= urilib:parse(erlang:binary_to_list(Tarball)),
+                             NewTarball = urilib:build({erlang:binary_to_atom(Scheme,utf8),
+                                                        {undefined,erlang:binary_to_list(Host),Port},P,Q,F}),
+                             NewDist = [{<<"tarball">>,erlang:list_to_binary(NewTarball)}] ++ proplists:delete(<<"tarball">>,Dist), 
+                             [{<<"dist">>,NewDist}] ++ proplists:delete(<<"dist">>,Package)
+                     end,
     DataFun = fun(C)->
                       Headers = C#cache.headers,
                       CacheKey = C#cache.cache_key,
                       case Version of 
                           undefined ->
                               {atomic,[Package]} = ai_npm_package:find_by_id(CacheKey),
-                              {data,Headers, Package#package.meta};
+                              Meta = jsx:decode(Package#package.meta),
+                              Versions = proplists:get_value(<<"versions">>,Meta),
+                              NewVersions = lists:foldl(fun({V,P},Acc)->
+                                                                NewP = ReplaceHostFun(P),
+                                                                [{V,NewP}| Acc]
+                                                        end,[],Versions),
+                              NewMeta = [{<<"versions">>,NewVersions}] ++ proplists:delete(<<"versions">>,Meta),
+                              {data,Headers,jsx:encode(NewMeta)};
                           _ ->
-                              {ok,Meta} = ai_npm_package:find_by_id_version(CacheKey,Version,binary),
-                              {data,Headers,Meta}
+                              {ok,Meta} = ai_npm_package:find_by_id_version(CacheKey,Version,json),
+                              NewMeta = ReplaceHostFun(Meta),
+                              {data,Headers,jsx:encode(NewMeta)}
                       end
               end,
     fun()->
