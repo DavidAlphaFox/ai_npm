@@ -7,15 +7,21 @@ fetch_package(Ctx)->
     Url = proplists:get_value(url,Ctx),
     ReqHeaders =  uplink_headers(proplists:get_value(headers,Ctx,[]),Ctx),
     CacheProcessor = proplists:get_value(processor,Ctx),
+    io:format("Fetch url: ~p~n",[Url]),
     StreamRef = gun:get(ConnPid, Url,ReqHeaders),
     case gun:await(ConnPid, StreamRef) of
         {response, fin, Status, Headers} ->
             CacheProcessor(Status,Headers,no_data);
         {response, nofin, Status,Headers} ->
             {ok, Body} = gun:await_body(ConnPid, StreamRef),
-            CacheProcessor(Status,Headers,Body)
+            Encoder = proplists:get_value(<<"content-encoding">>,Headers),
+            Body2 = decode_body(Encoder,Body),
+            CacheProcessor(Status,Headers,Body2)
     end.
 
+decode_body(<<"gzip">>,Body)->zlib:gunzip(Body);
+decode_body(_,Body) -> Body.
+                      
 
 
 open_remote(Ctx)->

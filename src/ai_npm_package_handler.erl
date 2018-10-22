@@ -24,13 +24,14 @@ fetch_with_cache(Req)->
     Version = cowboy_req:binding(version,Req,undefined),
     Headers = cowboy_req:headers(Req),
     Path = <<"/",Name/binary>>,
+    %%Path = cowboy_req:path(Req),
     CacheProcessor = cache_processor(Name,Version,Path),
     Handler = cache_handler(Version,Path),
     case ai_npm_mnesia_cache:try_hit_cache(Path) of
         not_found ->
             fetch_without_cache(Path,maps:to_list(Headers),CacheProcessor,Handler);
         {expired,C}->
-            NewHeaders = [{<<"if-none-match">>,C#cache.etag} | maps:to_list(Headers)],
+            NewHeaders = [{<<"if-none-match">>,C#cache.etag} | {<<"if-modified-since">>,C#cache.last_modified}] ++ maps:to_list(Headers),
             fetch_without_cache(Path,NewHeaders,CacheProcessor,Handler);
         {ok,_C} ->
             Handler()
@@ -39,12 +40,11 @@ fetch_with_cache(Req)->
 
 cache_processor(Name,Version,Path)-> 
     CachePackage = fun(Body)->
-                         %%  Body2 = unicode:characters_to_binary(Body),
-                         %%  Meta = jsx:decode(Body2),
-                         %%  ID = proplists:get_value(<<"_id">>,Meta),
-                          %% Rev = proplists:get_value(<<"_rev">>,Meta),
-                          %% Key = {ID,Rev},
-                           Key = {Name,Version},
+                           Meta = jsx:decode(Body),
+                           ID = proplists:get_value(<<"_id">>,Meta),
+                           Rev = proplists:get_value(<<"_rev">>,Meta),
+                           Key = {ID,Rev},
+                          %% Key = {Name,Version},
                           {atomic,ok} = ai_npm_package:add_package(Key,Body),                           
                            Key
                   end,
@@ -95,8 +95,9 @@ fetch_without_cache(Path,Headers,Processor,Handler) ->
     end.
 
 clean_headers(Headers)-> 
-    Exclued = [<<"set-cookie">>,<<"etag">>,<<"last-modified">>,
+    Exclued = [<<"set-cookie">>,<<"etag">>,<<"last-modified">>,<<"content-encoding">>,
                <<"cf-cache-status">>,<<"accept-ranges">>,<<"cf-ray">>,<<"expect-ct">>],
-    NewHeaders = lists:filter(fun({Key,_V})-> not lists:member(Key,Exclued) end,Headers),
+    NewHeaders = [{<<"content-encoding">>,<<"identity">>} | lists:filter(fun({Key,_V})-> not lists:member(Key,Exclued) end,Headers)],
+    
     maps:from_list(NewHeaders).
 
