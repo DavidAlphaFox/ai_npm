@@ -21,6 +21,7 @@ fetch_with_cache(Req) ->
     Tarball = cowboy_req:binding(tarball,Req),
     Path = cowboy_req:path(Req),
     Headers = cowboy_req:headers(Req),
+    io:format("process tarball path ~p~n",[Path]),
     case ai_npm_mnesia_cache:try_hit_cache(Path) of
         not_found ->
             fetch_without_cache(Path,maps:to_list(Headers),Tarball);
@@ -38,6 +39,7 @@ fetch_without_cache(Path,Headers,Tarball) ->
     case ai_idempotence_pool:task_add(pkg,Path,{ai_npm_fetcher,fetch_tarball,[Ctx]}) of
         {done,{data,Status,ResHeaders,File}} -> 
             {ok,Size} = ai_file:file_size(File),
+            ai_npm_mnesia_cache:add_to_cache(Path,ResHeaders,File),
             {data,Status,ResHeaders,{sendfile,0,Size,File}};
         {done,{no_data,Status,ResHeaders}} -> 
             if 

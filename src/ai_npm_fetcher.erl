@@ -29,10 +29,10 @@ fetch_tarball(Ctx)->
 	ReqHeaders =  ai_npm_gun:headers(proplists:get_value(headers,Ctx,[]),Ctx),
   StreamRef = gun:get(ConnPid, Url,ReqHeaders),
 	Final = fun(Status,Headers,TmpFile,FinalFile)->
-						io:format("final ~p ~p~n",[TmpFile,FinalFile]),
-						case ai_storage:rename(TmpFile,FinalFile) of
+						case ai_npm_storage:rename(TmpFile,FinalFile) of
 								{ok,FinalFile} ->{data,Status,Headers,FinalFile};
-								Error -> Error
+								Error -> 
+                    Error
 						end
 	end,
 	Downloader = fun(Status,Headers,Dir)->
@@ -40,27 +40,21 @@ fetch_tarball(Ctx)->
 								FinalFile = filename:join([Storage,Tarball]),
 								case ai_file:open_for_write(TmpFile) of
 													{ok,Fd} ->
-														io:format("open file ~p~n",[TmpFile]),
 														case download_tarball(Fd,ConnPid,StreamRef) of
 															{ok,StreamRef} -> 
 																		Final(Status,Headers,TmpFile,FinalFile);
 															{error,StreamRef,Reason} ->
-																		io:format("error occur: ~p~n",[Reason]),
 																		{error,Reason}
 														end;
 											Error -> 
-														io:format("open file error: ~p~n",[Error]),
 														Error
 									end
 							 end,
-    io:format("start to fetch tarball ~p~n",[Url]),
 		case gun:await(ConnPid, StreamRef) of
         {response, fin, Status, Headers} ->
-						io:format("no_data ~p ~p ~p~n",[Url,Status,Headers]),
 					{no_data,Status,Headers};
         {response, nofin, Status,Headers} ->
-					io:format("data ~p ~p ~p~n",[Url,Status,Headers]),
-					ai_tmp:run_with_tmp("ai_npm_downloader",[{remove,true},{path,TmpDir}],{Downloader,[Status,Headers]})
+					ai_tmp:run_with_tmp("ai_npm_downloader",[{clean,true},{path,TmpDir}],{Downloader,[Status,Headers]})
     end.
 
 
@@ -77,14 +71,12 @@ download_tarball(Fd,ConnPid,StreamRef)->
 download_tarball(OFile,Socket,StreamRef,MRef)->
 	receive
 					{gun_data, Socket, StreamRef, nofin, Data} ->
-							io:format("got data~n"),
 							ok = file:write(OFile, Data),
 							download_tarball(OFile, Socket, StreamRef,MRef);
 					{gun_data, Socket, StreamRef, fin, Data} ->
 							ok = file:write(OFile, Data),
 							ok = file:sync(OFile),
 							ok = file:close(OFile),
-					io:format("finish write~n"),
 							{ok,StreamRef};
 					{'DOWN', MRef, process, Socket, Reason} ->
 						{error,StreamRef,Reason}

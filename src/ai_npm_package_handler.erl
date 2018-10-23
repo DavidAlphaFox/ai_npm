@@ -57,20 +57,29 @@ save_tarball([{Filename1,Other}|_Rest])->
                       Error -> Error
                   end
           end,
-    ai_tmp:run_with_tmp("package",[{remove,true},{path,TmpDir}],{Fun,[]}).
+    ai_tmp:run_with_tmp("package",[{clean,true},{path,TmpDir}],{Fun,[]}).
 
 
 fetch_with_cache(Req)->
     Name = cowboy_req:binding(package,Req),
     Version = cowboy_req:binding(version,Req,undefined),
+    Version2 = cowboy_req:binding(scope_version,Req,undefined),
     Headers = cowboy_req:headers(Req),
     Scheme = cowboy_req:scheme(Req),
     Host = cowboy_req:host(Req),
     Port = cowboy_req:port(Req),
-    Path = <<"/",Name/binary>>,
-    %%Path = cowboy_req:path(Req),
-    CacheProcessor = cache_processor(Name,Version,Path),
-    Handler = cache_handler(Scheme,Host,Port,Version,Path),
+    {Path,RelVersion} = 
+        case {binary:first(Name),Version} of
+            {$@,undefined} -> {cowboy_req:path(Req),Version};
+            {$@,_}->
+                P = http_uri:encode(<<Name/binary,"/",Version/binary>>),
+                {<<"/",P/binary>>,Version2};
+            {_,undefined}-> {cowboy_req:path(Req),Version};
+            _ -> {<<"/",Name/binary>>,Version}
+        end,
+    io:format("process package path: ~p~n",[Path]),
+    CacheProcessor = cache_processor(Path),
+    Handler = cache_handler(Scheme,Host,Port,RelVersion,Path),
     case ai_npm_mnesia_cache:try_hit_cache(Path) of
         not_found ->
             fetch_without_cache(Path,maps:to_list(Headers),CacheProcessor,Handler);
@@ -82,26 +91,30 @@ fetch_with_cache(Req)->
     end.
 
 
-cache_processor(Name,Version,Path)-> 
+cache_processor(Path)-> 
     CachePackage = fun(Body)->
                            Meta = jsx:decode(Body),
-                           ID = proplists:get_value(<<"_id">>,Meta),
-                           {atomic,ok} = ai_npm_package:add_package(ID,Body),                           
-                           ID
+                           case proplists:get_value(<<"name">>,Meta) of
+                               undefined -> undefined;
+                               ID ->
+                                   {atomic,ok} = ai_npm_package:add_package(ID,Body),
+                                   ID
+                           end
                   end,
 
     fun(Status,ResHeaders,Body)->
             if Status == 304 ->
-                    io:format("process not modified respose {~p,~p} ~n",[Name,Version]),
                     ai_npm_mnesia_cache:refresh_headers(Path,ResHeaders),
                     ok;
                Status == 200 ->
-                    io:format("process respose {~p,~p} ~n",[Name,Version]),
-                    CacheKey = CachePackage(Body),
-                    ai_npm_mnesia_cache:add_to_cache(Path,ResHeaders,CacheKey),
-                    ok;
+                    case CachePackage(Body) of
+                        undefined ->
+                            {data,Status,ResHeaders,Body};
+                        CacheKey->                                
+                            ai_npm_mnesia_cache:add_to_cache(Path,ResHeaders,CacheKey),
+                            ok
+                    end;
                true ->
-                    io:format("process respose no_data {~p,~p} ~p~n",[Name,Version,Status]),
                     {no_data,Status,ResHeaders}
             end
     end.
