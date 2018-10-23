@@ -6,9 +6,12 @@
 start(Port) ->
     Router =  {'_', [
                      {"/:package/[:version]",ai_npm_package_handler,[]},
+%%                     {"/-/v1/login",ai_npm_user_handler,[]},
+                     {"/-/user/:user",ai_npm_user_handler,[]},
                      {"/:package/-/:tarball", ai_npm_tarball_handler,[]}
                     ]},
     Dispatch = cowboy_router:compile([Router]),
+    io:format("Dispatch ~p~n",[Dispatch]),
     cowboy:start_clear(ai_npm_proxy_server,
                        [{port, Port}],
                        #{env => #{dispatch => Dispatch}}

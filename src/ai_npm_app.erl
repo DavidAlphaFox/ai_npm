@@ -7,6 +7,7 @@
 -export([stop/1]).
 
 start(_Type, _Args) ->
+    ai_npm_storage:ensure_default_storage(),
     Result = ai_npm_sup:start_link(),
     ai_mnesia:ensure(fun()-> create_db() end),
     ai_idempotence_pool:named_pool(pkg),
@@ -22,6 +23,5 @@ create_db()->
                                                {attributes, record_info(fields, package)}]),
     {atomic,ok} = mnesia:create_table(cache,  [{disc_copies, [node()]},  
                                                        {attributes, record_info(fields, cache)}]),
-    {atomic,ok} = mnesia:create_table(package_private,  [{disc_copies, [node()]},  
-                                                       {attributes, record_info(fields, package_private)}]),
+
     ok.

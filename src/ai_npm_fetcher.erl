@@ -23,8 +23,6 @@ fetch_tarball(Ctx)->
   {ok, _Protocol} = gun:await_up(ConnPid),
   Url = proplists:get_value(url,Ctx),
 	Tarball = erlang:binary_to_list(proplists:get_value(tarball,Ctx)),
-	ok = ai_file:create_priv_dir(ai_npm,"storage"),
-	ok = ai_file:create_priv_dir(ai_npm,"tmp"),
 	DefaultStorage = ai_file:priv_dir(ai_npm,"storage"),
 	TmpDir = ai_file:priv_dir(ai_npm,"tmp"),
 	Storage = proplists:get_value(storage,Ctx,DefaultStorage),
@@ -32,17 +30,9 @@ fetch_tarball(Ctx)->
   StreamRef = gun:get(ConnPid, Url,ReqHeaders),
 	Final = fun(Status,Headers,TmpFile,FinalFile)->
 						io:format("final ~p ~p~n",[TmpFile,FinalFile]),
-						case filelib:ensure_dir(FinalFile) of
-							ok ->
-									case file:rename(TmpFile, FinalFile) of
-															ok ->
-																io:format("rename ~p~n",[FinalFile]), 
-																{data,Status,Headers,FinalFile};
-															Error -> 
-																io:format("rename error: ~p~n",[Error]),
-																Error
-										end;
-							DirError -> DirError
+						case ai_storage:rename(TmpFile,FinalFile) of
+								{ok,FinalFile} ->{data,Status,Headers,FinalFile};
+								Error -> Error
 						end
 	end,
 	Downloader = fun(Status,Headers,Dir)->

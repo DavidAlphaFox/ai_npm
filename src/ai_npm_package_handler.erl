@@ -7,6 +7,25 @@
                           ]).
 
 init(Req,State)->
+		Method = cowboy_req:method(Req),
+		handle_req(Method,Req,State).
+handle_req(<<"PUT">>,Req,State)->
+		{ok, Data, Req0} = cowboy_req:read_body(Req),
+		Json = jsx:decode(Data),
+		%% Json2 = proplists:delete(<<"_attachments">>,Json),
+		Tarball = proplists:get_value(<<"_attachments">>,Json),
+    {ok,_FinalFile} = save_tarball(Tarball),
+    Req1 = 
+        case ai_npm_package:merge_package(Json) of
+            {atomic,ok} ->
+                Res = jsx:encode([{<<"success">>,true}]),
+                cowboy_req:reply(201,#{<<"content-type">> => <<"application/json">>},Res,Req0);
+            _Error ->
+                Res = jsx:encode([{<<"success">>,false}]),
+                cowboy_req:reply(404,#{<<"content-type">> => <<"application/json">>},Res,Req0)
+        end,
+		{ok,Req1,State};	
+handle_req(<<"GET">>,Req,State)->
     Req2 = case fetch_with_cache(Req) of
                {data,ResHeaders,Data} ->
                    cowboy_req:reply(200,clean_headers(ResHeaders),Data,Req);
@@ -19,6 +38,28 @@ init(Req,State)->
                    cowboy_req:reply(500, maps:from_list(?RESPONSE_HEADERS), Body, Req)
            end,
     {ok, Req2, State}.
+
+save_tarball([{Filename1,Other}|_Rest])->
+    Filename = erlang:binary_to_list(Filename1),
+		Data = proplists:get_value(<<"data">>,Other),
+		Decode = base64:decode(Data),
+    Storage = ai_file:priv_dir(ai_npm,"storage"),
+    TmpDir = ai_file:priv_dir(ai_npm,"tmp"),
+    Fun = fun(Dir)->
+                  TmpFile = filename:join([Dir,Filename]),
+                  FinalFile = filename:join([Storage,Filename]),
+                  case ai_file:open_for_write(TmpFile) of    
+                      {ok,Fd} -> 
+                          file:write(Fd,Decode),
+                          file:sync(Fd),
+                          file:close(Fd),
+                          ai_npm_storage:rename(TmpFile,FinalFile);
+                      Error -> Error
+                  end
+          end,
+    ai_tmp:run_with_tmp("package",[{remove,true},{path,TmpDir}],{Fun,[]}).
+
+
 fetch_with_cache(Req)->
     Name = cowboy_req:binding(package,Req),
     Version = cowboy_req:binding(version,Req,undefined),
@@ -45,10 +86,8 @@ cache_processor(Name,Version,Path)->
     CachePackage = fun(Body)->
                            Meta = jsx:decode(Body),
                            ID = proplists:get_value(<<"_id">>,Meta),
-                           Rev = proplists:get_value(<<"_rev">>,Meta),
-                           Key = {ID,Rev},
-                           {atomic,ok} = ai_npm_package:add_package(Key,Body),                           
-                           Key
+                           {atomic,ok} = ai_npm_package:add_package(ID,Body),                           
+                           ID
                   end,
 
     fun(Status,ResHeaders,Body)->
@@ -84,7 +123,7 @@ cache_handler(Scheme,Host,Port,Version,Path)->
                       CacheKey = C#cache.cache_key,
                       case Version of 
                           undefined ->
-                              {atomic,[Package]} = ai_npm_package:find_by_id(CacheKey),
+                              {atomic,[Package]} = ai_npm_package:find_by_name(CacheKey),
                               Meta = jsx:decode(Package#package.meta),
                               Versions = proplists:get_value(<<"versions">>,Meta),
                               NewVersions = lists:foldl(fun({V,P},Acc)->
@@ -94,7 +133,7 @@ cache_handler(Scheme,Host,Port,Version,Path)->
                               NewMeta = [{<<"versions">>,NewVersions}] ++ proplists:delete(<<"versions">>,Meta),
                               {data,Headers,jsx:encode(NewMeta)};
                           _ ->
-                              {ok,Meta} = ai_npm_package:find_by_id_version(CacheKey,Version,json),
+                              {atomic,Meta} = ai_npm_package:find_by_name_version(CacheKey,Version,json),
                               NewMeta = ReplaceHostFun(Meta),
                               {data,Headers,jsx:encode(NewMeta)}
                       end
