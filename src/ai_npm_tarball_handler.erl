@@ -31,16 +31,20 @@ fetch_with_cache(Req) ->
         {ok,C} ->
             File = C#cache.cache_key,
             ResHeaders = C#cache.headers,
-            {ok,Size} = ai_file:file_size(File),
-            {data,ResHeaders,{sendfile,0,Size,File}}
+            {ok,Fd} = ai_blob_file:open_for_read(File,false),
+            {Offset,Size} = ai_blob_file:data_range(Fd),
+            ai_blob_file:close(Fd),
+            {data,ResHeaders,{sendfile,Offset,Size,File}}
     end.
 fetch_without_cache(Path,Headers,Tarball) ->
     Ctx = [{url,Path},{headers,Headers},{tarball,Tarball}],
     case ai_idempotence_pool:task_add(pkg,Path,{ai_npm_fetcher,fetch_tarball,[Ctx]}) of
         {done,{data,Status,ResHeaders,File}} -> 
-            {ok,Size} = ai_file:file_size(File),
+            {ok,Fd} = ai_blob_file:open_for_read(File,false),
+            {Offset,Size} = ai_blob_file:data_range(Fd),
+            ai_blob_file:close(Fd),
             ai_npm_mnesia_cache:add_to_cache(Path,ResHeaders,File),
-            {data,Status,ResHeaders,{sendfile,0,Size,File}};
+            {data,Status,ResHeaders,{sendfile,Offset,Size,File}};
         {done,{no_data,Status,ResHeaders}} -> 
             if 
                 Status == 304 ->
@@ -48,8 +52,10 @@ fetch_without_cache(Path,Headers,Tarball) ->
                     C = ai_npm_mnesia_cache:hit_cache(Path),
                     File = C#cache.cache_key,
                     ResHeaders = C#cache.headers,
-                    {ok,Size} = ai_file:file_size(File),
-                    {data,ResHeaders,{sendfile,0,Size,File}};
+                    {ok,Fd} = ai_blob_file:open_for_read(File,false),
+                    {Offset,Size} = ai_blob_file:data_range(Fd),
+                    ai_blob_file:close(Fd),
+                    {data,ResHeaders,{sendfile,Offset,Size,File}};
                 true ->
                     {no_data,Status,ResHeaders}
             end;

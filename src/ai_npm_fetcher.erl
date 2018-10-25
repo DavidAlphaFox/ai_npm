@@ -43,18 +43,20 @@ fetch_tarball(Ctx) ->
 		    end
 	    end,
     Downloader = fun (Status, Headers, Dir) ->
-			 TmpFile = filename:join([Dir, Tarball]),
-			 FinalFile = filename:join([Storage, Tarball]),
-			 case ai_file:open_for_write(TmpFile) of
-			   {ok, Fd} ->
-			       case download_tarball(Fd, ConnPid, StreamRef) of
-				 {ok, StreamRef} ->
-				     Final(Status, Headers, TmpFile, FinalFile);
-				 {error, StreamRef, Reason} -> {error, Reason}
-			       end;
-			   Error -> Error
-			 end
-		 end,
+					TmpFile = filename:join([Dir, Tarball]),
+			 		case ai_blob_file:open_for_write(TmpFile) of
+			   			{ok, Fd} ->
+							case download_tarball(Fd, ConnPid, StreamRef) of
+								{ok, StreamRef,Digest} ->
+									DigestString = ai_strings:hash_to_string(Digest,160,lower),
+									HashFinal = ai_file:hash_to_fullname(2,DigestString),
+									FinalFile = filename:join([Storage,HashFinal]),
+									Final(Status, Headers, TmpFile,FinalFile);
+								{error, StreamRef, Reason} -> {error, Reason}
+							end;
+			   			Error -> Error
+			 		end
+		 		end,
     case gun:await(ConnPid, StreamRef) of
       {response, fin, Status, Headers} ->
 	  {no_data, Status, Headers};
@@ -75,13 +77,12 @@ download_tarball(Fd, ConnPid, StreamRef) ->
 download_tarball(OFile, Socket, StreamRef, MRef) ->
     receive
 		{gun_data, Socket, StreamRef, nofin, Data} ->
-	  		ok = file:write(OFile, Data),
-	  		download_tarball(OFile, Socket, StreamRef, MRef);
+	  		{ok,NewFd} = ai_blob_file:write(OFile, Data),
+	  		download_tarball(NewFd, Socket, StreamRef, MRef);
       	{gun_data, Socket, StreamRef, fin, Data} ->
-	  		ok = file:write(OFile, Data),
-	  		ok = file:sync(OFile),
-	  		ok = file:close(OFile),
-	  		{ok, StreamRef};
+	  		{ok,NewFd} = ai_blob_file:write(OFile, Data),
+	  		{ok,_NewFd2,Digest} = ai_blob_file:close(NewFd),
+	  		{ok, StreamRef,Digest};
       	{'DOWN', MRef, process, Socket, Reason} ->
 	  		{error, StreamRef, Reason}
     	after 10000 ->
