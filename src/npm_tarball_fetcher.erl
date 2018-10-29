@@ -9,30 +9,32 @@ do(Ctx)->
 do_on_cache({hit,CacheKey,Headers})-> {hit,CacheKey,Headers};
 do_on_cache(_,Ctx)->
     Url = proplists:get_value(url, Ctx),
-    Tmpfile = erlang:binary_to_list(proplists:get_value(tmp_file,Ctx)),
-    Finalfile = erlang:binary_to_list(proplists:get_value(final_file,Ctx)),
+    Scope = proplists:get_value(scope,Ctx),
+    Tarball = proplists:get_value(tarball,Ctx),
     ReqHeaders = npm_fetcher:headers(Ctx),
     {ok, ConnPid} = npm_fetcher:open(Ctx),
     {ok, _Protocol} = gun:await_up(ConnPid),
     StreamRef = gun:get(ConnPid, Url, ReqHeaders),
     case gun:await(ConnPid, StreamRef) of
       {response, fin, Status, Headers} -> {no_data, Status, Headers};
-      {response, nofin, Status, Headers} -> download(Status,Headers,TmpFile,FinalFile)
+      {response, nofin, Status, Headers} -> download(Status,Headers,Scope,Tarball)
     end.
 
 
-done(Status, Headers, TmpFile, FinalFile) ->
-    case ai_npm_storage:rename(TmpFile, FinalFile) of
+done(Status, Headers, TmpFile,Scope,Tarball,Digest) ->
+    case npm_tarball_storage:store(TmpFile,Scope,Tarball,Digest) of
         {ok, FinalFile} -> {data, Status, Headers, FinalFile};
 		Error -> Error
 	end.
 
-download(Status,Headers,TmpFile,FinalFile)->
+download(Status,Headers,Scope,Tarball)->
+    TmpFile = npm_tarball_storage:tmpfile(Scope,Tarball),
     case ai_blob_file:open_for_write(TmpFile) of
         {ok, Fd} ->
             case stream_download(Fd, ConnPid, StreamRef) of
-				{ok, StreamRef,_Digest} ->
-                    done(Status,Headers,Tmpfile,FinalFile);
+				{ok, StreamRef,Digest} ->
+                    DigestString = ai_strings:hash_to_string(Digest,160,lower),
+                    done(Status,Headers,Tmpfile,Scope,Tarball,DigestString);
 				{error, StreamRef, Reason} -> {error, Reason}
 			end;
 		Error -> Error

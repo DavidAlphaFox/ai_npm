@@ -1,5 +1,6 @@
--module(ai_npm_tarball_handler).
--include("ai_npm.hrl").
+-module(npm_api_tarball).
+-include("npm_tarball.hrl").
+
 -define(RESPONSE_HEADERS, [
                            {<<"Content-Type">>, <<"application/octet-stream">>}
                           ]).
@@ -17,6 +18,27 @@ init(Req,State)->
                    cowboy_req:reply(500, maps:from_list(?RESPONSE_HEADERS), Body, Req)
            end,
     {ok, Req2, State}.
+
+version(Package,Tarball)->
+    Tail = string:prefix(Tarball,<<Package,"-">>),
+    Suffix = string:find(Tail,".",trailing),
+    SLen = erlang:byte_size(Suffix),
+    TLen = erlang:byte_size(Tail),
+    string:slice(Tail,0,TLen - SLen).
+
+fetch_with_private(Req)->
+    Scope = cowboy_req:binding(scope,Req),
+    Package = cowboy_req:binding(package,Req),
+    Tarball = cowboy_req:binding(tarball,Req),
+    Version  = version(Package,Tarball),
+    case ai_mnesia_operation:one_or_none(npm_tarball_mnesia(Scope,Package,Version)) of 
+        not_found -> fetch_with_cache(Req),
+        Record ->
+            Path = Record#tarball.path,
+            {Offset,Size} = ai_blob_file:data_range(Path), 
+            {data,200,[],{sendfile,Offset,Size,Path}}
+    end.
+
 fetch_with_cache(Req) ->
     Tarball = cowboy_req:binding(tarball,Req),
     Path = cowboy_req:path(Req),
