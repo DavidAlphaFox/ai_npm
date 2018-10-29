@@ -28,8 +28,8 @@ start(_Type, _Args) ->
     Result = ai_npm_sup:start_link(),
     ai_mnesia:ensure(fun()-> create_db() end),
     ai_idempotence_pool:named_pool(pkg),
-    Port = application:get_env(ai_npm,proxy_server_port,4873),
-    {ok,_} = ai_npm_proxy_server:start(Port),
+    Port = application:get_env(ai_npm,api_server_port,4873),
+    {ok,_} = npm_api_server:start(Port),
     Result.
 
 stop(_State) ->

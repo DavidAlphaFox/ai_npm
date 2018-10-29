@@ -15,6 +15,8 @@ find_by_name(Name)->
 	end,
 	mnesia:transaction(F).
 
+
+
 -spec find_by_name_version(Name :: binary(),Version :: binary(),atom()) -> {atomic,term()} | {aborted,term()}. 
 find_by_name_version(Name,Version,Type)->
 	case find_by_name(Name) of
@@ -22,6 +24,7 @@ find_by_name_version(Name,Version,Type)->
 			{atomic,[]} -> {atomic,not_found};
 			Res -> Res
 	end.
+
 
 package_version(Item,Version,Type)->
 		Json = jsx:decode(Item#package.meta),

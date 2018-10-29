@@ -1,4 +1,4 @@
--module(ai_npm_proxy_server).
+-module(npm_api_server).
 %% API
 -export([start/1, stop/0]).
 
