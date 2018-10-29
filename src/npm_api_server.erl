@@ -6,7 +6,7 @@
 start(Port) ->
     Router =  {'_', [
 %%                     {"/-/v1/login",ai_npm_user_handler,[]},
-                     {"/-/user/:user",ai_npm_user_handler,[]},
+                     {"/-/user/:user",npm_api_user,[]},
                      {"/[:scope]/:package/-/:tarball", ai_npm_tarball_handler,[]},
                      {"/:package/[:version/[:scope_version]]",ai_npm_package_handler,[]}
                     ]},

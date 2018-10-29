@@ -1,8 +1,8 @@
 -module(npm_package_mnesia).
--include("ai_npm.hrl").
+-include("npm_package.hrl").
 
 -export([find/1,find/2]).
--export([add/1,add/2]).
+-export([add/3,add/4]).
 
 
 -spec find(Name :: binary()) -> {atomic,term()} | {aborted,term()}. 

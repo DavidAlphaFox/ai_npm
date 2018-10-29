@@ -1,4 +1,4 @@
--module(ai_npm_user_handler).
+-module(npm_api_user).
 -export([init/2]).
 init(Req,State)->
     io:format("got req ~p~n",[Req]),

@@ -1,8 +1,8 @@
--module(ai_npm_gun).
+-module(npm_fetcher).
 
 -export([decode_body/2]).
 -export([remote_host/1,remote_protocol/1,remote_port/1]).
--export([tls/1,headers/2]).
+-export([tls/1,headers/1]).
 -export([open/1]).
 
 decode_body(<<"gzip">>,Body)->zlib:gunzip(Body);
@@ -20,7 +20,8 @@ remote_protocol(Ctx) -> proplists:get_value(uplink_protocol,Ctx,"https").
 tls("https")->#{transport => tls};
 tls(_) ->#{}.    
 
-headers(Headers,Ctx)->
+headers(Ctx)->
+    Headers = proplists:get_value(headers, Ctx,[]),
     NewHeaders = lists:filter(fun({Key,_Value}) -> Key /= <<"host">> end,Headers),
     Host = remote_host(Ctx),
     Port = remote_port(Ctx),

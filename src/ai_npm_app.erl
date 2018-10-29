@@ -1,7 +1,9 @@
 -module(ai_npm_app).
 -behaviour(application).
 
--include("ai_npm.hrl").
+-include_lib("ailib/include/ailib.hrl").
+-include("npm_package.hrl").
+-include("npm_tarball.hrl").
 
 -export([start/2]).
 -export([stop/1]).
@@ -38,7 +40,7 @@ stop(_State) ->
 create_db()->
     {atomic,ok} = mnesia:create_table(package,[{disc_copies, [node()]},  
                                                {attributes, record_info(fields, package)}]),
-    {atomic,ok} = mnesia:create_table(cache,  [{disc_copies, [node()]},  
-                                                       {attributes, record_info(fields, cache)}]),
-
+    {atomic,ok} = mnesia:create_table(tarball,[{disc_copies, [node()]},  
+                                               {attributes, record_info(fields, tarball)}]),
+    ai_http_cache:initialize_mnesia_table(),
     ok.
