@@ -9,32 +9,60 @@ do(Ctx)->
 do_on_cache({hit,CacheKey,Headers})-> {hit,CacheKey,Headers};
 do_on_cache(_,Ctx)->
     Url = proplists:get_value(url, Ctx),
-    Scope = proplists:get_value(scope,Ctx),
-    Tarball = proplists:get_value(tarball,Ctx),
+    Tar = tarball(Ctx),
     ReqHeaders = npm_fetcher:headers(Ctx),
     {ok, ConnPid} = npm_fetcher:open(Ctx),
     {ok, _Protocol} = gun:await_up(ConnPid),
     StreamRef = gun:get(ConnPid, Url, ReqHeaders),
     case gun:await(ConnPid, StreamRef) of
-      {response, fin, Status, Headers} -> {no_data, Status, Headers};
-      {response, nofin, Status, Headers} -> download(Status,Headers,Scope,Tarball)
+      {response, fin, Status, ResHeaders} -> cache(no_data,ResHeaders,Url,Status);
+      {response, nofin, Status, ResHeaders} -> 
+        if  Status  == 200 ->  download(Url,ResHeaders,Tar);
+            true ->  
+                {ok,Data} = gun:await_body(ConnPid,StreamRef),
+                {data,Status,ResHeaders,Data}
+        end
     end.
 
 
-done(Status, Headers, TmpFile,Scope,Tarball,Digest) ->
-    case npm_tarball_storage:store(TmpFile,Scope,Tarball,Digest) of
-        {ok, FinalFile} -> {data, Status, Headers, FinalFile};
+tarball(Ctx)->
+    Scope = proplists:get_value(scope,Ctx),
+    Version = proplists:get_value(version,Ctx),
+    Package = proplists:get_value(package,Ctx),
+    Tarball = proplists:get_value(tarball,Ctx),
+    {Scope,Package,Version,Tarball}.
+
+cache(no_data,Headers,Url,Status)
+    if 
+        Status == 304 ->
+            ai_http_cache:cache(Url,Headers),
+            {no_data,Status,Headers};
+        true ->
+            {no_data,Status,Headers}
+    end;
+cache(data,Headers,Url,Tar)->
+    {Scope,Package,Version,_Tarball} = Tar
+    ai_http_cache:cache(Url,Headers,{Scope,Package,Version}).
+
+done(Status, Headers,Url,TmpFile,Digest,Tar) ->
+    {Scope,Package,Version,_Tarball} = Tar,
+    case npm_tarball_storage:store(TmpFile,Digest,Tar) of
+        {ok, FinalFile} -> 
+            npm_tarball_mnesia:add(Scope,Package,Version,Path),
+            cache(data,Headers,Url,Tar),
+            {data,Headers, FinalFile};
 		Error -> Error
 	end.
 
-download(Status,Headers,Scope,Tarball)->
+download(Url,Headers,Tar)->
+    {Scope,_Package,_Version,Tarball} = Tar,
     TmpFile = npm_tarball_storage:tmpfile(Scope,Tarball),
     case ai_blob_file:open_for_write(TmpFile) of
         {ok, Fd} ->
             case stream_download(Fd, ConnPid, StreamRef) of
 				{ok, StreamRef,Digest} ->
                     DigestString = ai_strings:hash_to_string(Digest,160,lower),
-                    done(Status,Headers,Tmpfile,Scope,Tarball,DigestString);
+                    done(Status,Headers,Url,Tmpfile,DigestString,Tar);
 				{error, StreamRef, Reason} -> {error, Reason}
 			end;
 		Error -> Error
@@ -61,5 +89,6 @@ stream_download(OFile, Socket, StreamRef, MRef) ->
       	{'DOWN', MRef, process, Socket, Reason} ->
 	  		{error, StreamRef, Reason}
     	after 10000 ->
-			gun:close(Socket), {error, StreamRef, timeout}
+			gun:close(Socket), 
+            {error, StreamRef, timeout}
     end.

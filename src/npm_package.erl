@@ -1,20 +1,20 @@
 -module(npm_package).
 -include("npm_package.hrl").
 
--export([name/1,versions/1,dist_tags/1,attachments/1,scope/1]).
+-export([name/1,versions/1,dist_tags/1,attachments/1,scope_name/1]).
 -export([version/2]).
 -export([merge/2]).
 
 -spec name(Json :: proplists:proplists()) -> binary() | undefined.
 name(Json)-> proplists:get_value(?NAME,Json).
 -spec scope(Json :: proplists:proplists()) -> binary() | undefined.
-scope(Json) -> 
+scope_name(Json) -> 
     case name(Json) of
         undefined -> undefined;
         _ ->
-            case binary:split(Name) of 
-                [Name] -> undefined;
-                [Scope,_RName] -> Scope
+            case binary:split(Name,<<"/">>) of 
+                [Name] -> {undefined,Name};
+                [Scope,RName] -> {Scope,RName}
             end 
     end. 
 -spec versions(Json :: proplists:proplists()) -> binary() | undefined.

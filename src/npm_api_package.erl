@@ -1,5 +1,5 @@
--module(ai_npm_package_handler).
--include("ai_npm.hrl").
+-module(npm_api_package).
+-include("npm_package.hrl").
 
 -export([init/2]).
 -define(RESPONSE_HEADERS, [
@@ -7,16 +7,16 @@
                           ]).
 
 init(Req,State)->
-		Method = cowboy_req:method(Req),
-		handle_req(Method,Req,State).
+	Method = cowboy_req:method(Req),
+	handle_req(Method,Req,State).
 handle_req(<<"PUT">>,Req,State)->
-		{ok, Data, Req0} = cowboy_req:read_body(Req),
-		Json = jsx:decode(Data),
-		%% Json2 = proplists:delete(<<"_attachments">>,Json),
-		Tarball = proplists:get_value(<<"_attachments">>,Json),
-    {ok,_FinalFile} = save_tarball(Tarball),
+	{ok, Data, Req0} = cowboy_req:read_body(Req),
+	Json = jsx:decode(Data),
+	Tarball = npm_package:attachments(Json),
+    ScopeName = npm_package:scope_name(Json),
+    {ok,_FinalFile} = save_tarball(ScopeName,Tarball),
     Req1 = 
-        case ai_npm_package:merge_package(Json) of
+        case npm_package:merge_package(Json) of
             {atomic,ok} ->
                 Res = jsx:encode([{<<"success">>,true}]),
                 cowboy_req:reply(201,#{<<"content-type">> => <<"application/json">>},Res,Req0);
@@ -39,26 +39,20 @@ handle_req(<<"GET">>,Req,State)->
            end,
     {ok, Req2, State}.
 
-save_tarball([{Filename1,Other}|_Rest])->
+save_tarball({Scope,_Name} = ScopeName,[{Filename1,Other}|Rest])->
     Filename = erlang:binary_to_list(Filename1),
-		Data = proplists:get_value(<<"data">>,Other),
-		Decode = base64:decode(Data),
-    Storage = ai_file:priv_dir(ai_npm,"storage"),
-    TmpDir = ai_file:priv_dir(ai_npm,"tmp"),
+	Data = proplists:get_value(<<"data">>,Other),
+	Decode = base64:decode(Data),
+    TmpFile = npm_tarball_storage:tmpfile(Scope,Filename),
     Fun = fun(Dir)->
-                  TmpFile = filename:join([Dir,Filename]),
-                  FinalFile = filename:join([Storage,Filename]),
-                  case ai_file:open_for_write(TmpFile) of    
-                      {ok,Fd} -> 
-                          file:write(Fd,Decode),
-                          file:sync(Fd),
-                          file:close(Fd),
-                          ai_npm_storage:rename(TmpFile,FinalFile);
-                      Error -> Error
-                  end
-          end,
-    ai_tmp:run_with_tmp("package",[{clean,true},{path,TmpDir}],{Fun,[]}).
-
+                case ai_blob_file:open_for_write(TmpFile) of    
+                    {ok,Fd} -> 
+                        ai_blob_file:write(Fd,Decode),
+                        {ok,_NewFd,Digest} = ai_blob_file:close(Fd),
+                    Error -> Error
+                end
+            end,
+    save_tarball(ScopeName,Rest).
 
 fetch_with_cache(Req)->
     Name = cowboy_req:binding(package,Req),

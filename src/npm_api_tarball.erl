@@ -6,7 +6,7 @@
                           ]).
 -export([init/2]).
 init(Req,State)->
-    Req2 = case fetch_with_cache(Req) of
+    Req2 = case fetch_with_private(Req) of
                {data,ResHeaders,Data}->
                    cowboy_req:reply(200,clean_headers(ResHeaders),Data,Req);
                {data,Status,ResHeaders,Data}->
@@ -26,55 +26,68 @@ version(Package,Tarball)->
     TLen = erlang:byte_size(Tail),
     string:slice(Tail,0,TLen - SLen).
 
+
 fetch_with_private(Req)->
-    Scope = cowboy_req:binding(scope,Req),
-    Package = cowboy_req:binding(package,Req),
-    Tarball = cowboy_req:binding(tarball,Req),
-    Version  = version(Package,Tarball),
-    case ai_mnesia_operation:one_or_none(npm_tarball_mnesia(Scope,Package,Version)) of 
-        not_found -> fetch_with_cache(Req),
+    {Scope,Package,Version,_Tarball,Ctx} = ctx(Req),
+    case ai_mnesia_operation:one_or_none(npm_tarball_mnesia:find(Scope,Package,Version,true)) of 
+        not_found -> 
+            fetch_with_cache(Ctx,Req);
         Record ->
             Path = Record#tarball.path,
             {Offset,Size} = ai_blob_file:data_range(Path), 
             {data,200,[],{sendfile,Offset,Size,Path}}
     end.
 
-fetch_with_cache(Req) ->
+ctx(Req)->
+    Scope = cowboy_req:binding(scope,Req),
+    Package = cowboy_req:binding(package,Req),
     Tarball = cowboy_req:binding(tarball,Req),
+    Version  = version(Package,Tarball),
+    Ctx = [{scope,Scope},{package,Package},{tarball,Tarball},{version,Version}],
+    {Scope,Package,Version,Tarball,Ctx}.
+
+req_headers(undefined,undefined,Headers) -> maps:to_list(Headers);
+req_headers(Etag,undefined,Headers) ->  [{<<"if-none-match">>,Etag}] ++ maps:to_list(Headers);
+req_headers(undefined,Modified,Headers) -> [{<<"if-modified-since">>,Modified}] ++ maps:to_list(Headers);
+req_headers(Etag,Modified,Headers)->
+    [{<<"if-none-match">>,Etag} , {<<"if-modified-since">>,Modified}] ++ maps:to_list(Headers).
+
+
+
+fetch_with_cache(Ctx,Req) ->
     Path = cowboy_req:path(Req),
     Headers = cowboy_req:headers(Req),
-    io:format("process tarball path ~p~n",[Path]),
-    case ai_npm_mnesia_cache:try_hit_cache(Path) of
+    case ai_http_cache:validate_hit(Path) of 
         not_found ->
-            fetch_without_cache(Path,maps:to_list(Headers),Tarball);
-        {expired,C}->
-            NewHeaders = [{<<"if-none-match">>,C#cache.etag} , {<<"if-modified-since">>,C#cache.last_modified}] ++ maps:to_list(Headers),
-            fetch_without_cache(Path,NewHeaders,Tarball);
-        {ok,C} ->
-            File = C#cache.cache_key,
-            ResHeaders = C#cache.headers,
-            {Offset,Size} = ai_blob_file:data_range(File),
-            {data,ResHeaders,{sendfile,Offset,Size,File}}
+            fetch_without_cache(Path,maps:to_list(Headers),Ctx);
+        {expired,Etag,Modified} ->
+            NewHeaders = req_headers(Etag,Modified,Headers),
+            fetch_without_cache(Path,NewHeaders,Ctx);
+        {hit,CacheKey,ResHeaders}
+            reply(CacheKey,Path,ResHeaders)
     end.
-fetch_without_cache(Path,Headers,Tarball) ->
-    Ctx = [{url,Path},{headers,Headers},{tarball,Tarball}],
-    case ai_idempotence_pool:task_add(pkg,Path,{ai_npm_fetcher,fetch_tarball,[Ctx]}) of
-        {done,{data,Status,ResHeaders,File}} -> 
+fetch_without_cache(Path,Headers,Ctx) ->
+    FetcherCtx = [{url,Path},{headers,Headers}] ++ Ctx, 
+    case ai_idempotence_pool:task_add(pkg,Path,{npm_tarball_fetcher,do,[Ctx]}) of
+        {done,{data,ResHeaders,File}} -> 
             {Offset,Size} = ai_blob_file:data_range(File),
-            ai_npm_mnesia_cache:add_to_cache(Path,ResHeaders,File),
-            {data,Status,ResHeaders,{sendfile,Offset,Size,File}};
-        {done,{no_data,Status,ResHeaders}} -> 
-            if 
-                Status == 304 ->
-                    ai_npm_mnesia_cache:refresh_headers(Path,ResHeaders),
-                    C = ai_npm_mnesia_cache:hit_cache(Path),
-                    File = C#cache.cache_key,
-                    {Offset,Size} = ai_blob_file:data_range(File),
-                    {data,ResHeaders,{sendfile,Offset,Size,File}};
-                true ->
-                    {no_data,Status,ResHeaders}
-            end;
+            {data,ResHeaders,{sendfile,Offset,Size,File}};
+        {done,{data,Status,ResHeaders,Data}} -> {data,Status,ResHeaders,Data};
+        {done,{no_data,Status,ResHeaders}} -> {no_data,Status,ResHeaders};
+        {done,{hit,CacheKey,ResHeaders}} -> reply(CacheKey,ResHeaders)
         _ -> not_found
+    end.
+
+
+reply({Scope,Package,Version},Url,ResHeaders)->
+   case ai_mnesia_operation:one_or_none(npm_tarball_mnesia:find(Scope,Package,Version)) of 
+        not_found -> 
+            ai_http_cache:uncache(url),
+            not_found
+        Record ->
+            Path = Record#tarball.path,
+            {Offset,Size} = ai_blob_file:data_range(Path), 
+            {data,200,ResHeaders,{sendfile,Offset,Size,Path}}
     end.
 
 clean_headers(Headers)-> 
