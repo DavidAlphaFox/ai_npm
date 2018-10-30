@@ -1,0 +1,2 @@
+-define(PUT,<<"PUT">>).
+-define(GET,<<"GET">>).

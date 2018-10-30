@@ -15,7 +15,7 @@ do_on_cache(_,Ctx)->
     {ok, _Protocol} = gun:await_up(ConnPid),
     StreamRef = gun:get(ConnPid, Url, ReqHeaders),
     case gun:await(ConnPid, StreamRef) of
-      {response, fin, Status, ResHeaders} -> cache(no_data,ResHeaders,Url,Status);
+      {response, fin, Status, ResHeaders} -> cache(no_data,Url,ResHeaders,Status);
       {response, nofin, Status, ResHeaders} -> 
         if  Status  == 200 ->  download(Url,ResHeaders,Tar);
             true ->  
@@ -32,7 +32,7 @@ tarball(Ctx)->
     Tarball = proplists:get_value(tarball,Ctx),
     {Scope,Package,Version,Tarball}.
 
-cache(no_data,Headers,Url,Status)
+cache(no_data,Url,Headers,Status)
     if 
         Status == 304 ->
             ai_http_cache:cache(Url,Headers),
@@ -40,7 +40,7 @@ cache(no_data,Headers,Url,Status)
         true ->
             {no_data,Status,Headers}
     end;
-cache(data,Headers,Url,Tar)->
+cache(data,Url,Headers,Tar)->
     {Scope,Package,Version,_Tarball} = Tar
     ai_http_cache:cache(Url,Headers,{Scope,Package,Version}).
 
@@ -49,7 +49,7 @@ done(Status, Headers,Url,TmpFile,Digest,Tar) ->
     case npm_tarball_storage:store(TmpFile,Digest,Tar) of
         {ok, FinalFile} -> 
             npm_tarball_mnesia:add(Scope,Package,Version,Path),
-            cache(data,Headers,Url,Tar),
+            cache(data,Url,Headers,Tar),
             {data,Headers, FinalFile};
 		Error -> Error
 	end.

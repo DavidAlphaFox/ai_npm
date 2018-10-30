@@ -19,13 +19,6 @@ init(Req,State)->
            end,
     {ok, Req2, State}.
 
-version(Package,Tarball)->
-    Tail = string:prefix(Tarball,<<Package,"-">>),
-    Suffix = string:find(Tail,".",trailing),
-    SLen = erlang:byte_size(Suffix),
-    TLen = erlang:byte_size(Tail),
-    string:slice(Tail,0,TLen - SLen).
-
 
 fetch_with_private(Req)->
     {Scope,Package,Version,_Tarball,Ctx} = ctx(Req),
@@ -42,7 +35,7 @@ ctx(Req)->
     Scope = cowboy_req:binding(scope,Req),
     Package = cowboy_req:binding(package,Req),
     Tarball = cowboy_req:binding(tarball,Req),
-    Version  = version(Package,Tarball),
+    Version  = npm_package:version(Package,Tarball),
     Ctx = [{scope,Scope},{package,Package},{tarball,Tarball},{version,Version}],
     {Scope,Package,Version,Tarball,Ctx}.
 

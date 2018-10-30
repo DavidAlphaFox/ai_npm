@@ -2,7 +2,7 @@
 -define(VERSIONS,<<"versions">>).
 -define(DIST_TAGS,<<"dist-tags">>).
 -define(ATTACHMENTS,<<"_attachments">>).
-
+-define(DATA,<<"data">>).
 -record(package,{
                 name :: tuple(),
                 meta :: binary(),	%% the json content of the package

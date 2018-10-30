@@ -23,8 +23,7 @@ tmpfile(Scope,Tarball)->
     ai_tmp:name(Tarball,Opts).
 -spec store(TmpFile :: list() | binary(),Tar :: tuple()
     ,Digest :: list()|binary()) -> {ok,list()|binary()} | {error, atom()}.
-store(TmpFile,Digest,Tar)->
-    {Scope,_Package,_Version,Tarball} = Tar,
+store(TmpFile,Digest,Scope,Tarball)->
     Dir = case Scope of
             undefined -> filename:join([storage_dir(), Digest]);
             _ -> filename:join([storage_dir(), Scope,Digest])

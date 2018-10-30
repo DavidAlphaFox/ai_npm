@@ -1,5 +1,6 @@
 -module(npm_api_package).
 -include("npm_package.hrl").
+-include("req.hrl").
 
 -export([init/2]).
 -define(RESPONSE_HEADERS, [
@@ -8,24 +9,53 @@
 
 init(Req,State)->
 	Method = cowboy_req:method(Req),
-	handle_req(Method,Req,State).
-handle_req(<<"PUT">>,Req,State)->
+	req(Method,Req,State).
+
+
+store_tarball(Scope,Name,Version,Filename,Data)->
+    TmpFile = npm_tarball_storage:tmpfile(Scope,Filename),
+    case ai_blob_file:open_for_write(TmpFile) of    
+        {ok,Fd} -> 
+            ai_blob_file:write(Fd,Data),
+            {ok,_NewFd,Digest} = ai_blob_file:close(Fd),
+            case npm_tarball_storage:store(TmpFile,Digest,Scope,Filename) of 
+                {ok,FinalFile} -> npm_tarball_mnesia:add({Scope,Name},Version,FinalFile,true);
+                Error -> Error
+        Error -> Error
+    end.
+store_tarball({Scope,Name} = ScopeName,[{Filename,Other}|Rest])->
+	Data = proplists:get_value(?DATA,Other),
+	Decode = base64:decode(Data),
+    Version = npm_package:version(Name,Filename),
+    store_tarball(Scope,Name,Version,Filename,Decode),
+    save_tarball(ScopeName,Rest).
+
+merge_package(ScopeName,Json)->
+    case ai_mnesia_operation:one_or_none(npm_package_mnesia:find(ScopeName)) of 
+        not_found -> npm_package_mnesia:add(ScopeName,jsx:encode(Json),true);
+        Item -> 
+            MergedJson = npm_package:merge_package(jsx:decode(Item),Json),
+            npm_package_mnesia:add(ScopeName,jsx:encode(MergedJson))
+    end.
+
+req(?PUT,Req,State)->
 	{ok, Data, Req0} = cowboy_req:read_body(Req),
 	Json = jsx:decode(Data),
 	Tarball = npm_package:attachments(Json),
-    ScopeName = npm_package:scope_name(Json),
-    {ok,_FinalFile} = save_tarball(ScopeName,Tarball),
+    ScopeName = npm_package:scope_name(npm_package:name(Json)),
+    {atomic,ok} = store_tarball(ScopeName,Tarball),
     Req1 = 
-        case npm_package:merge_package(Json) of
-            {atomic,ok} ->
+        case merge_package(ScopeName,proplists:delete(?ATTACHMENTS,Json)) of 
+            {atomic,ok} -> 
                 Res = jsx:encode([{<<"success">>,true}]),
                 cowboy_req:reply(201,#{<<"content-type">> => <<"application/json">>},Res,Req0);
             _Error ->
                 Res = jsx:encode([{<<"success">>,false}]),
                 cowboy_req:reply(404,#{<<"content-type">> => <<"application/json">>},Res,Req0)
         end,
-		{ok,Req1,State};	
-handle_req(<<"GET">>,Req,State)->
+	{ok,Req1,State};	
+
+req(?GET,Req,State)->
     Req2 = case fetch_with_cache(Req) of
                {data,ResHeaders,Data} ->
                    cowboy_req:reply(200,clean_headers(ResHeaders),Data,Req);
@@ -39,39 +69,21 @@ handle_req(<<"GET">>,Req,State)->
            end,
     {ok, Req2, State}.
 
-save_tarball({Scope,_Name} = ScopeName,[{Filename1,Other}|Rest])->
-    Filename = erlang:binary_to_list(Filename1),
-	Data = proplists:get_value(<<"data">>,Other),
-	Decode = base64:decode(Data),
-    TmpFile = npm_tarball_storage:tmpfile(Scope,Filename),
-    Fun = fun(Dir)->
-                case ai_blob_file:open_for_write(TmpFile) of    
-                    {ok,Fd} -> 
-                        ai_blob_file:write(Fd,Decode),
-                        {ok,_NewFd,Digest} = ai_blob_file:close(Fd),
-                    Error -> Error
-                end
-            end,
-    save_tarball(ScopeName,Rest).
 
-fetch_with_cache(Req)->
-    Name = cowboy_req:binding(package,Req),
+
+name_version(Req)->
+    Scope = cowboy_req:binding(scope,Req),
+    Name = cowboy_req:binding(package,Req,undefined),
     Version = cowboy_req:binding(version,Req,undefined),
-    Version2 = cowboy_req:binding(scope_version,Req,undefined),
+    case {binary:first(Scope),Name} of
+        {$@,undefined} -> {npm_package:scope_name(Scope),undefined};
+        {$@,_}-> {{Scope,Name},Version};
+        {_N,_V} -> {{undefined,Scope},Name}
+    end.
+fetch_with_cache(Req)->
+    {ScopeName,Version} = name_version(Req),
+    Path = cowboy_req:path(Req),
     Headers = cowboy_req:headers(Req),
-    Scheme = cowboy_req:scheme(Req),
-    Host = cowboy_req:host(Req),
-    Port = cowboy_req:port(Req),
-    {Path,RelVersion} = 
-        case {binary:first(Name),Version} of
-            {$@,undefined} -> {cowboy_req:path(Req),Version};
-            {$@,_}->
-                P = http_uri:encode(<<Name/binary,"/",Version/binary>>),
-                {<<"/",P/binary>>,Version2};
-            {_,undefined}-> {cowboy_req:path(Req),Version};
-            _ -> {<<"/",Name/binary>>,Version}
-        end,
-    io:format("process package path: ~p~n",[Path]),
     CacheProcessor = cache_processor(Path),
     Handler = cache_handler(Scheme,Host,Port,RelVersion,Path),
     case ai_npm_mnesia_cache:try_hit_cache(Path) of
@@ -85,33 +97,6 @@ fetch_with_cache(Req)->
     end.
 
 
-cache_processor(Path)-> 
-    CachePackage = fun(Body)->
-                           Meta = jsx:decode(Body),
-                           case proplists:get_value(<<"name">>,Meta) of
-                               undefined -> undefined;
-                               ID ->
-                                   {atomic,ok} = ai_npm_package:add_package(ID,Body),
-                                   ID
-                           end
-                  end,
-
-    fun(Status,ResHeaders,Body)->
-            if Status == 304 ->
-                    ai_npm_mnesia_cache:refresh_headers(Path,ResHeaders),
-                    ok;
-               Status == 200 ->
-                    case CachePackage(Body) of
-                        undefined ->
-                            {data,Status,ResHeaders,Body};
-                        CacheKey->                                
-                            ai_npm_mnesia_cache:add_to_cache(Path,ResHeaders,CacheKey),
-                            ok
-                    end;
-               true ->
-                    {no_data,Status,ResHeaders}
-            end
-    end.
 
 cache_handler(Scheme,Host,Port,Version,Path)->
     ReplaceHostFun = fun(Package)->
