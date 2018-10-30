@@ -1,5 +1,5 @@
 -module(npm_req).
--export([req_headers/3,res_headers/1]).
+-export([req_headers/3,res_headers/1,server_name/1]).
 
 req_headers(undefined,undefined,Headers) -> maps:to_list(Headers);
 req_headers(Etag,undefined,Headers) ->  [{<<"if-none-match">>,Etag}] ++ maps:to_list(Headers);
@@ -13,3 +13,8 @@ res_headers(Headers)->
                <<"cf-cache-status">>,<<"accept-ranges">>,<<"cf-ray">>,<<"expect-ct">>],
     NewHeaders = [{<<"content-encoding">>,<<"identity">>} | lists:filter(fun({Key,_V})-> not lists:member(Key,Exclued) end,Headers)],
     maps:from_list(NewHeaders).
+server_name(Req)->
+    Scheme = cowboy_req:scheme(Req),
+    Host = cowboy_req:host(Req),
+    Port = cowboy_req:port(Req),
+    {Scheme,Host,Port}.

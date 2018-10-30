@@ -21,9 +21,10 @@ store_tarball(Scope,Name,Version,Filename,Data)->
             case npm_tarball_storage:store(TmpFile,Digest,Scope,Filename) of 
                 {ok,FinalFile} -> npm_tarball_mnesia:add({Scope,Name},Version,FinalFile,true);
                 Error -> Error
+            end;
         Error -> Error
     end.
-store_tarball({Scope,Name} = ScopeName,[{Filename,Other}|Rest])->
+save_tarball({Scope,Name} = ScopeName,[{Filename,Other}|Rest])->
 	Data = proplists:get_value(?DATA,Other),
 	Decode = base64:decode(Data),
     Version = npm_package:version(Name,Filename),
@@ -43,7 +44,7 @@ req(?PUT,Req,State)->
 	Json = jsx:decode(Data),
 	Tarball = npm_package:attachments(Json),
     ScopeName = npm_package:scope_name(npm_package:name(Json)),
-    {atomic,ok} = store_tarball(ScopeName,Tarball),
+    {atomic,ok} = save_tarball(ScopeName,Tarball),
     Req1 = 
         case merge_package(ScopeName,proplists:delete(?ATTACHMENTS,Json)) of 
             {atomic,ok} -> 
@@ -56,7 +57,8 @@ req(?PUT,Req,State)->
 	{ok,Req1,State};	
 
 req(?GET,Req,State)->
-    Req2 = case fetch_with_cache(Req) of
+    io:format("process req:~p~n",[Req]),
+    Req2 = case fetch_with_private(Req) of
                {data,ResHeaders,Data} ->
                    cowboy_req:reply(200,npm_req:res_headers(ResHeaders),Data,Req);
                {data,Status,ResHeaders,Data}->
@@ -83,23 +85,21 @@ fetch_with_private(Req)->
     {ScopeName,Version} = name_version(Req),
     case ai_mnesia_operation:one_or_none(npm_package_mnesia:find(ScopeName,true)) of 
          not_found -> fetch_with_cache(Req);
-         Record ->{data,?PACKAGE_HEADERS,Record#package.meta}
+         Record -> reply_version(Version,Record,?PACKAGE_HEADERS,npm_req:server_name(Req))
     end.
   
 fetch_with_cache(Req)->
     {ScopeName,Version} = name_version(Req),
-    Scheme = cowboy_req:scheme(Req),
-    Host = cowboy_req:host(Req),
-    Port = cowboy_req:port(Req),
-    Path = cowboy_req:path(Req),
+    ServerName = npm_req:server_name(Req),
+    Url = cowboy_req:path(Req),
     Headers = cowboy_req:headers(Req),
-    case ai_http_cache:validate_hit(Path) of 
-        not_found -> fetch_without_cache(Path,maps:to_list(Headers),{Scheme,Host,Port},ScopeName,Version);
+    case ai_http_cache:validate_hit(Url) of 
+        not_found -> fetch_without_cache(Url,maps:to_list(Headers),ServerName,ScopeName,Version);
         {expired,Etag,Modified} -> 
             NewHeaders = npm_req:req_headers(Etag,Modified,maps:to_list(Headers)),
-            fetch_without_cache(Path,NewHeaders,{Scheme,Host,Port},ScopeName,Version);
+            fetch_without_cache(Url,NewHeaders,ServerName,ScopeName,Version);
         {hit,CacheKey,ResHeaders}->
-            reply(Url,ResHeaders,{Scheme,Host,Port},CacheKey,Version)
+            reply(Url,ResHeaders,ServerName,CacheKey,Version)
     end.
 
 replace_with_host(Scheme,Host,Port,Package)->
@@ -112,15 +112,15 @@ replace_with_host(Scheme,Host,Port,Package)->
                                 {undefined,erlang:binary_to_list(Host),Port},P,Q,F}),
     NewDist = [{?TARBALL,erlang:list_to_binary(NewTarball)}] ++ proplists:delete(?TARBALL,Dist), 
     [{?DIST,NewDist}] ++ proplists:delete(?DIST,Package).
-reply_version(undefined,Record,ResHeaders,{Scheme,Host,Port})->
+reply_version(undefined,Record,ResHeaders,{_Scheme,_Host,_Port})->
     Meta = jsx:decode(Record#package.meta),
-    Versions = npm_package:versions(Meta),
-    NewVersions = lists:foldl(fun({V,P},Acc)->
-                                    NewP = replace_with_host(Scheme,Host,Port,P),
-                                    [{V,NewP}| Acc]
-                                end,[],Versions),
-    NewMeta = [{?VERSIONS,NewVersions}] ++ proplists:delete(?VERSIONS,Meta),
-    {data,ResHeaders,jsx:encode(NewMeta)};
+    %%Versions = npm_package:versions(Meta),
+    %%NewVersions = lists:foldl(fun({V,P},Acc)->
+    %%                                NewP = replace_with_host(Scheme,Host,Port,P),
+    %%                                [{V,NewP}| Acc]
+    %%                            end,[],Versions),
+    %%NewMeta = [{?VERSIONS,NewVersions}] ++ proplists:delete(?VERSIONS,Meta),
+    {data,ResHeaders,jsx:encode(Meta)};
 reply_version(Version,Record,ResHeaders,{Scheme,Host,Port})->
     Meta = jsx:decode(Record#package.meta),
     VersionInfo = npm_package:version_info(Version,Meta),
@@ -131,17 +131,17 @@ reply_version(Version,Record,ResHeaders,{Scheme,Host,Port})->
              {data,ResHeaders,jsx:encode(NewMeta)}
     end.
 reply(Url,ResHeaders,Http,Name,Version)->
-    case ai_mnesia_operation:one_or_none(npm_tarball_mnesia:find(Name)) of 
+    case ai_mnesia_operation:one_or_none(npm_package_mnesia:find(Name)) of 
         not_found -> 
             ai_http_cache:uncache(Url),
-            not_found
+            not_found;
         Record ->
-            reply_version(Version,Record,Http)
+            reply_version(Version,Record,ResHeaders,Http)
     end.
 
 fetch_without_cache(Url,Headers,Http,Name,Version) ->
-    Ctx = [{url,Url},{headers,Headers},{package,Name}],
-    case ai_idempotence_pool:task_add(pkg,Path,{npm_package_fecher,do,[Ctx]}) of
+    Ctx = [{url,Url},{headers,Headers},{cache_key,Name}],
+    case ai_idempotence_pool:task_add(pkg,Url,{npm_package_fetcher,do,[Ctx]}) of
         {done,{hit,CacheKey,ResHeaders}} -> reply(Url,ResHeaders,Http,CacheKey,Version);
         {done,Result}-> Result;
         {error,_Error,_Reason} -> not_found

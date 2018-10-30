@@ -1,7 +1,7 @@
 -module(npm_package_mnesia).
 -include("npm_package.hrl").
 
--export([find/1]).
+-export([find/1,find/2]).
 -export([add/2,add/3]).
 
 
@@ -14,7 +14,15 @@ find(Name)->
 		mnesia:select(package, [{MatchHead, Guard, Result}])
 	end,
 	mnesia:transaction(F).
-
+-spec find(Name :: tuple(),Type::boolean()) -> {atomic,term()} | {aborted,term()}. 
+find(Name,Type) ->
+	F = fun()->
+			MatchHead = #package{name = '$1',private = '$2',_ = '_'},
+			Guard = [{'==', '$1', {Name}},{'==','$2',Type}],
+			Result = ['$_'],
+			mnesia:select(package, [{MatchHead, Guard, Result}])
+		end,
+	mnesia:transaction(F).
 -spec add(Name :: tuple(),Meta :: binary()) -> {atomic,ok} | {aborted,term()}.
 add(Name,Meta)->
     add(Name,Meta,false).

@@ -21,7 +21,7 @@ tmpfile(Scope,Tarball)->
             _ -> [{prefix,Scope},{path,tmp_dir()}]
         end,
     ai_tmp:name(Tarball,Opts).
--spec store(TmpFile :: list() | binary(),Tar :: tuple()
+-spec store(TmpFile :: list() | binary(),Scope :: list()|binary(),Tarball :: list()|binary()
     ,Digest :: list()|binary()) -> {ok,list()|binary()} | {error, atom()}.
 store(TmpFile,Digest,Scope,Tarball)->
     Dir = case Scope of
