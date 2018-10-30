@@ -6,9 +6,9 @@
 start(Port) ->
     Router =  {'_', [
 %%                     {"/-/v1/login",ai_npm_user_handler,[]},
-                     {"/-/user/:user",npm_api_user,[]},
-                     {"/[:scope]/:package/-/:tarball", npm_api_tarball,[]},
-                     {"/:scope/[:package/[:version]]",npm_api_package,[]}
+                    %% {"/-/user/:user",npm_api_user,[]},
+                    %% {"/[:scope]/:package/-/:tarball", npm_api_tarball,[]},
+                     {"/:scope/[:package/[:version]]",npm_package_api,[]}
                     ]},
     Dispatch = cowboy_router:compile([Router]),
     io:format("Dispatch ~p~n",[Dispatch]),
