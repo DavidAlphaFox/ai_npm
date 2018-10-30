@@ -6,7 +6,7 @@ do(Ctx)->
         do_on_cache(CacheHint,Ctx)
     end,
     npm_cache:run_cache(Url,{Fun,[]}).
-do_on_cache({hit,CacheKey,Headers})-> {hit,CacheKey,Headers};
+do_on_cache({hit,CacheKey,Headers},_Ctx)-> {hit,CacheKey,Headers};
 do_on_cache(_,Ctx)->
     Url = proplists:get_value(url, Ctx),
     Tar = tarball(Ctx),
@@ -15,9 +15,9 @@ do_on_cache(_,Ctx)->
     {ok, _Protocol} = gun:await_up(ConnPid),
     StreamRef = gun:get(ConnPid, Url, ReqHeaders),
     case gun:await(ConnPid, StreamRef) of
-      {response, fin, Status, ResHeaders} -> cache(no_data,Url,ResHeaders,Status);
+      {response, fin, Status, ResHeaders} -> cache(no_data,Url,ResHeaders,Status,Tar);
       {response, nofin, Status, ResHeaders} -> 
-        if  Status  == 200 ->  download(Url,ResHeaders,Tar);
+        if  Status  == 200 ->  download(ConnPid,StreamRef,Url,ResHeaders,Tar);
             true ->  
                 {ok,Data} = gun:await_body(ConnPid,StreamRef),
                 {data,Status,ResHeaders,Data}
@@ -32,37 +32,38 @@ tarball(Ctx)->
     Tarball = proplists:get_value(tarball,Ctx),
     {Scope,Package,Version,Tarball}.
 
-cache(no_data,Url,Headers,Status)
+cache(no_data,Url,ResHeaders,Status,Tar)->
+    {Scope,Package,Version,_Tarball} = Tar,
     if 
         Status == 304 ->
-            ai_http_cache:cache(Url,Headers),
-            {no_data,Status,Headers};
+            ai_http_cache:cache(Url,ResHeaders),
+            {hit,{Scope,Package,Version},ResHeaders};
         true ->
-            {no_data,Status,Headers}
+            {no_data,Status,ResHeaders}
     end;
-cache(data,Url,Headers,Tar)->
-    {Scope,Package,Version,_Tarball} = Tar
+cache(data,Url,Headers,Path,Tar)->
+    {Scope,Package,Version,_Tarball} = Tar,
+    npm_tarball_mnesia:add({Scope,Package},Version,Path),
     ai_http_cache:cache(Url,Headers,{Scope,Package,Version}).
 
-done(Status, Headers,Url,TmpFile,Digest,Tar) ->
+done(ResHeaders,Url,TmpFile,Digest,Tar) ->
     {Scope,Package,Version,_Tarball} = Tar,
-    case npm_tarball_storage:store(TmpFile,Digest,Tar) of
+    case npm_tarball_storage:store(TmpFile,Digest,Scope,Package) of
         {ok, FinalFile} -> 
-            npm_tarball_mnesia:add(Scope,Package,Version,Path),
-            cache(data,Url,Headers,Tar),
-            {data,Headers, FinalFile};
+            cache(data,Url,ResHeaders,FinalFile,Tar),
+            {hit,{Scope,Package,Version},ResHeaders};
 		Error -> Error
 	end.
 
-download(Url,Headers,Tar)->
+download(ConnPid,StreamRef,Url,ResHeaders,Tar)->
     {Scope,_Package,_Version,Tarball} = Tar,
-    TmpFile = npm_tarball_storage:tmpfile(Scope,Tarball),
-    case ai_blob_file:open_for_write(TmpFile) of
+    Tmpfile = npm_tarball_storage:tmpfile(Scope,Tarball),
+    case ai_blob_file:open_for_write(Tmpfile) of
         {ok, Fd} ->
             case stream_download(Fd, ConnPid, StreamRef) of
 				{ok, StreamRef,Digest} ->
                     DigestString = ai_strings:hash_to_string(Digest,160,lower),
-                    done(Status,Headers,Url,Tmpfile,DigestString,Tar);
+                    done(ResHeaders,Url,Tmpfile,DigestString,Tar);
 				{error, StreamRef, Reason} -> {error, Reason}
 			end;
 		Error -> Error

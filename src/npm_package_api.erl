@@ -115,15 +115,15 @@ replace_with_host(Scheme,Host,Port,Package)->
                                 {undefined,erlang:binary_to_list(Host),Port},P,Q,F}),
     NewDist = [{?TARBALL,erlang:list_to_binary(NewTarball)}] ++ proplists:delete(?TARBALL,Dist), 
     [{?DIST,NewDist}] ++ proplists:delete(?DIST,Package).
-reply_version(undefined,Record,ResHeaders,{_Scheme,_Host,_Port})->
+reply_version(undefined,Record,ResHeaders,{Scheme,Host,Port})->
     Meta = jsx:decode(Record#package.meta),
-    %%Versions = npm_package:versions(Meta),
-    %%NewVersions = lists:foldl(fun({V,P},Acc)->
-    %%                                NewP = replace_with_host(Scheme,Host,Port,P),
-    %%                                [{V,NewP}| Acc]
-    %%                            end,[],Versions),
-    %%NewMeta = [{?VERSIONS,NewVersions}] ++ proplists:delete(?VERSIONS,Meta),
-    {data,ResHeaders,jsx:encode(Meta)};
+    Versions = npm_package:versions(Meta),
+    NewVersions = lists:foldl(fun({V,P},Acc)->
+                                    NewP = replace_with_host(Scheme,Host,Port,P),
+                                    [{V,NewP}| Acc]
+                                end,[],Versions),
+    NewMeta = [{?VERSIONS,NewVersions}] ++ proplists:delete(?VERSIONS,Meta),
+    {data,ResHeaders,jsx:encode(NewMeta)};
 reply_version(Version,Record,ResHeaders,{Scheme,Host,Port})->
     Meta = jsx:decode(Record#package.meta),
     VersionInfo = npm_package:version_info(Version,Meta),

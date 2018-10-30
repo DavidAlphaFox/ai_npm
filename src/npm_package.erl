@@ -22,7 +22,7 @@ version_info(Version,Json) ->
     end.
 -spec version(Package :: binary(),Tarball :: binary()) -> binary().
 version(Package,Tarball)->
-    Tail = string:prefix(Tarball,<<Package,"-">>),
+    Tail = string:prefix(Tarball,<<Package/binary,"-">>),
     Suffix = string:find(Tail,".",trailing),
     SLen = erlang:byte_size(Suffix),
     TLen = erlang:byte_size(Tail),

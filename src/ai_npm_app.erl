@@ -26,7 +26,7 @@ start(_Type, _Args) ->
     application:ensure_started(ailib),
     application:ensure_started(urilib),
     application:ensure_started(jsx),
-    ai_npm_storage:ensure_default_storage(),
+    npm_tarball_storage:ensure_default_storage(),
     Result = ai_npm_sup:start_link(),
     ai_mnesia:ensure(fun()-> create_db() end),
     ai_idempotence_pool:named_pool(pkg),
