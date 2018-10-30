@@ -50,6 +50,6 @@ cache(no_data,Url,ResHeaders,Status,CacheKey)->
     if 
         Status == 304 ->
             ai_http_cache:cache(Url,ResHeaders),
-            {hit,CacheKey,Headers};
+            {hit,CacheKey,ResHeaders};
         true -> {no_data,Status,ResHeaders}
     end.
