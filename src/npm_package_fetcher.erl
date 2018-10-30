@@ -38,8 +38,13 @@ cache(data,Url,ResHeaders,Body)->
                 {atomic,ok} = ai_npm_package:add_package(ScopeName,Body),
                 ScopeName
         end,
-    ai_http_cache:cache(Url,CacheKey,ResHeaders),
-    {data,ResHeaders,Body};
+    case CacheKey of 
+        undefined ->
+            {data,ResHeaders,Body};
+        _ ->
+            ai_http_cache:cache(Url,CacheKey,ResHeaders),
+            {data,ResHeaders,Body}
+    end;
 cache(no_data,Url,ResHeaders,Status)->
     if 
         Status == 304 ->

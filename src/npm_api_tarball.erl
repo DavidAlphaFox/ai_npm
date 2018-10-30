@@ -39,13 +39,6 @@ ctx(Req)->
     Ctx = [{scope,Scope},{package,Package},{tarball,Tarball},{version,Version}],
     {Scope,Package,Version,Tarball,Ctx}.
 
-req_headers(undefined,undefined,Headers) -> maps:to_list(Headers);
-req_headers(Etag,undefined,Headers) ->  [{<<"if-none-match">>,Etag}] ++ maps:to_list(Headers);
-req_headers(undefined,Modified,Headers) -> [{<<"if-modified-since">>,Modified}] ++ maps:to_list(Headers);
-req_headers(Etag,Modified,Headers)->
-    [{<<"if-none-match">>,Etag} , {<<"if-modified-since">>,Modified}] ++ maps:to_list(Headers).
-
-
 
 fetch_with_cache(Ctx,Req) ->
     Path = cowboy_req:path(Req),

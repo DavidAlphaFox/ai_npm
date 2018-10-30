@@ -1,4 +1,4 @@
--module(npm_api_package).
+-module(npm_package_api).
 -include("npm_package.hrl").
 -include("req.hrl").
 
@@ -58,18 +58,16 @@ req(?PUT,Req,State)->
 req(?GET,Req,State)->
     Req2 = case fetch_with_cache(Req) of
                {data,ResHeaders,Data} ->
-                   cowboy_req:reply(200,clean_headers(ResHeaders),Data,Req);
+                   cowboy_req:reply(200,npm_req:res_headers(ResHeaders),Data,Req);
                {data,Status,ResHeaders,Data}->
-                   cowboy_req:reply(Status,clean_headers(ResHeaders),Data,Req);
+                   cowboy_req:reply(Status,npm_req:res_headers(ResHeaders),Data,Req);
                {no_data,Status,ResHeaders}->
-                   cowboy_req:reply(Status,clean_headers(ResHeaders),Req);
+                   cowboy_req:reply(Status,npm_req:res_headers(ResHeaders),Req);
                not_found ->
                    Body = <<"Internal Server Error">>,
                    cowboy_req:reply(500, maps:from_list(?RESPONSE_HEADERS), Body, Req)
            end,
     {ok, Req2, State}.
-
-
 
 name_version(Req)->
     Scope = cowboy_req:binding(scope,Req),
@@ -80,75 +78,72 @@ name_version(Req)->
         {$@,_}-> {{Scope,Name},Version};
         {_N,_V} -> {{undefined,Scope},Name}
     end.
+
+fetch_with_private(Req)->
+    {ScopeName,Version} = name_version(Req),
+    case ai_mnesia_operation:one_or_none(npm_package_mnesia:find(ScopeName,true)) of 
+         not_found -> fetch_with_cache(Req);
+         Record ->{data,?PACKAGE_HEADERS,Record#package.meta}
+    end.
+  
 fetch_with_cache(Req)->
     {ScopeName,Version} = name_version(Req),
+    Scheme = cowboy_req:scheme(Req),
+    Host = cowboy_req:host(Req),
+    Port = cowboy_req:port(Req),
     Path = cowboy_req:path(Req),
     Headers = cowboy_req:headers(Req),
-    CacheProcessor = cache_processor(Path),
-    Handler = cache_handler(Scheme,Host,Port,RelVersion,Path),
-    case ai_npm_mnesia_cache:try_hit_cache(Path) of
-        not_found ->
-            fetch_without_cache(Path,maps:to_list(Headers),CacheProcessor,Handler);
-        {expired,C}->
-            NewHeaders = [{<<"if-none-match">>,C#cache.etag} , {<<"if-modified-since">>,C#cache.last_modified}] ++ maps:to_list(Headers),
-            fetch_without_cache(Path,NewHeaders,CacheProcessor,Handler);
-        {ok,_C} ->
-            Handler()
+    case ai_http_cache:validate_hit(Path) of 
+        not_found -> fetch_without_cache(Path,maps:to_list(Headers),{Scheme,Host,Port},ScopeName,Version);
+        {expired,Etag,Modified} -> 
+            NewHeaders = npm_req:req_headers(Etag,Modified,maps:to_list(Headers)),
+            fetch_without_cache(Path,NewHeaders,{Scheme,Host,Port},ScopeName,Version);
+        {hit,CacheKey,ResHeaders}->
+            reply(Url,ResHeaders,{Scheme,Host,Port},CacheKey,Version)
     end.
 
-
-
-cache_handler(Scheme,Host,Port,Version,Path)->
-    ReplaceHostFun = fun(Package)->
-                             Dist = proplists:get_value(<<"dist">>,Package),
-                             Tarball = proplists:get_value(<<"tarball">>,Dist),
-                             %%{http,{undefined,"registry.npmjs.org",80},
-                              %%"/react/-/react-0.0.1.tgz",undefined,undefined} 
-                             {_S,_H,P,Q,F}= urilib:parse(erlang:binary_to_list(Tarball)),
-                             NewTarball = urilib:build({erlang:binary_to_atom(Scheme,utf8),
-                                                        {undefined,erlang:binary_to_list(Host),Port},P,Q,F}),
-                             NewDist = [{<<"tarball">>,erlang:list_to_binary(NewTarball)}] ++ proplists:delete(<<"tarball">>,Dist), 
-                             [{<<"dist">>,NewDist}] ++ proplists:delete(<<"dist">>,Package)
-                     end,
-    DataFun = fun(C)->
-                      Headers = C#cache.headers,
-                      CacheKey = C#cache.cache_key,
-                      case Version of 
-                          undefined ->
-                              {atomic,[Package]} = ai_npm_package:find_by_name(CacheKey),
-                              Meta = jsx:decode(Package#package.meta),
-                              Versions = proplists:get_value(<<"versions">>,Meta),
-                              NewVersions = lists:foldl(fun({V,P},Acc)->
-                                                                NewP = ReplaceHostFun(P),
-                                                                [{V,NewP}| Acc]
-                                                        end,[],Versions),
-                              NewMeta = [{<<"versions">>,NewVersions}] ++ proplists:delete(<<"versions">>,Meta),
-                              {data,Headers,jsx:encode(NewMeta)};
-                          _ ->
-                              {atomic,Meta} = ai_npm_package:find_by_name_version(CacheKey,Version,json),
-                              NewMeta = ReplaceHostFun(Meta),
-                              {data,Headers,jsx:encode(NewMeta)}
-                      end
-              end,
-    fun()->
-            case ai_npm_mnesia_cache:hit_cache(Path) of
-                not_found -> not_found;
-                C -> DataFun(C)
-            end
+replace_with_host(Scheme,Host,Port,Package)->
+    Dist = proplists:get_value(?DIST,Package),
+    Tarball = proplists:get_value(?TARBALL,Dist),
+    %%{http,{undefined,"registry.npmjs.org",80},
+    %%"/react/-/react-0.0.1.tgz",undefined,undefined} 
+    {_S,_H,P,Q,F}= urilib:parse(erlang:binary_to_list(Tarball)),
+    NewTarball = urilib:build({erlang:binary_to_atom(Scheme,utf8),
+                                {undefined,erlang:binary_to_list(Host),Port},P,Q,F}),
+    NewDist = [{?TARBALL,erlang:list_to_binary(NewTarball)}] ++ proplists:delete(?TARBALL,Dist), 
+    [{?DIST,NewDist}] ++ proplists:delete(?DIST,Package).
+reply_version(undefined,Record,ResHeaders,{Scheme,Host,Port})->
+    Meta = jsx:decode(Record#package.meta),
+    Versions = npm_package:versions(Meta),
+    NewVersions = lists:foldl(fun({V,P},Acc)->
+                                    NewP = replace_with_host(Scheme,Host,Port,P),
+                                    [{V,NewP}| Acc]
+                                end,[],Versions),
+    NewMeta = [{?VERSIONS,NewVersions}] ++ proplists:delete(?VERSIONS,Meta),
+    {data,ResHeaders,jsx:encode(NewMeta)};
+reply_version(Version,Record,ResHeaders,{Scheme,Host,Port})->
+    Meta = jsx:decode(Record#package.meta),
+    VersionInfo = npm_package:version_info(Version,Meta),
+    case VersionInfo of 
+         undefined -> not_found;
+         _ -> 
+             NewMeta = replace_with_host(Scheme,Host,Port,VersionInfo),
+             {data,ResHeaders,jsx:encode(NewMeta)}
+    end.
+reply(Url,ResHeaders,Http,Name,Version)->
+    case ai_mnesia_operation:one_or_none(npm_tarball_mnesia:find(Name)) of 
+        not_found -> 
+            ai_http_cache:uncache(Url),
+            not_found
+        Record ->
+            reply_version(Version,Record,Http)
     end.
 
-fetch_without_cache(Path,Headers,Processor,Handler) ->
-    Ctx = [{url,Path},{headers,Headers},{processor,Processor}],
-    case ai_idempotence_pool:task_add(pkg,Path,{ai_npm_fetcher,fetch_package,[Ctx]}) of
-        {done,ok} -> Handler();
-        {done,{no_data,Status,ResHeaders}} -> {no_data,Status,ResHeaders};
+fetch_without_cache(Url,Headers,Http,Name,Version) ->
+    Ctx = [{url,Url},{headers,Headers},{package,Name}],
+    case ai_idempotence_pool:task_add(pkg,Path,{npm_package_fecher,do,[Ctx]}) of
+        {done,{hit,CacheKey,ResHeaders}} -> reply(Url,ResHeaders,Http,CacheKey,Version);
         {done,Result}-> Result;
         {error,_Error,_Reason} -> not_found
     end.
-
-clean_headers(Headers)-> 
-    Exclued = [<<"set-cookie">>,<<"etag">>,<<"last-modified">>,<<"content-encoding">>,
-               <<"cf-cache-status">>,<<"accept-ranges">>,<<"cf-ray">>,<<"expect-ct">>],
-    NewHeaders = [{<<"content-encoding">>,<<"identity">>} | lists:filter(fun({Key,_V})-> not lists:member(Key,Exclued) end,Headers)],
-    maps:from_list(NewHeaders).
 
