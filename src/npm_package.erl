@@ -7,32 +7,32 @@
 
 -spec name(Json :: proplists:proplists()) -> binary() | undefined.
 name(Json)-> proplists:get_value(?NAME,Json).
--spec scope(Name :: binary()) -> binary() | undefined.
-scope_name(Name) -> 
-    case binary:split(Name,<<"/">>) of 
-        [Name] -> {undefined,Name};
-        [Scope,RName] -> {Scope,RName}
-    end.
+
 -spec versions(Json :: proplists:proplists()) -> binary() | undefined.
 versions(Json) -> proplists:get_value(?VERSIONS,Json).
 -spec dist_tags(Json :: proplists:proplists()) -> binary() | undefined.
 dist_tags(Json) ->  proplists:get_value(?DIST_TAGS,Json).
 -spec attachments(Json :: proplists:proplists()) -> binary() | undefined.
 attachments(Json) -> proplists:get_value(?ATTACHMENTS,Json).
--spec version(Version::binary(),Json :: proplists:proplists()) -> proplists:proplists() | undefined.
+-spec version_info(Version::binary(),Json :: proplists:proplists()) -> proplists:proplists() | undefined.
 version_info(Version,Json) ->
     case versions(Json) of
         undefined -> undefined;
         Versions -> proplists:get_value(Version,Versions)
     end.
-
+-spec version(Package :: binary(),Tarball :: binary()) -> binary().
 version(Package,Tarball)->
     Tail = string:prefix(Tarball,<<Package,"-">>),
     Suffix = string:find(Tail,".",trailing),
     SLen = erlang:byte_size(Suffix),
     TLen = erlang:byte_size(Tail),
     string:slice(Tail,0,TLen - SLen).
-
+-spec scope_name(Name :: binary()) -> binary() | undefined.
+scope_name(Name) -> 
+    case binary:split(Name,<<"/">>) of 
+        [Name] -> {undefined,Name};
+        [Scope,RName] -> {Scope,RName}
+    end.
 -spec merge(ORecord :: proplists:proplists(),NRecord :: proplists:proplists()) -> proplists:proplists().
 merge(ORecord,NRecord)->
     DistTags = dist_tags(NRecord),
