@@ -297,7 +297,7 @@ do_on_cache(_,Ctx,State)->
     		StreamRef = gun:get(ConnPid, Url, ReqHeaders),
 			timer(?HTTP_TIMEOUT,{kill_tasks,StreamRef},State1#state{stream = StreamRef,url = Url})
 	end.
-process_task(Url,Status,Headers,CacheKey,no_data)->cache(no_data,Url,Status,Headers,CacheKey);
+process_task(Url,Status,Headers,CacheKey,no_data)->cache(no_data,Url,Headers,Status,CacheKey);
 process_task(Url,Status,Headers,CacheKey,Final)->
 	Encoder = proplists:get_value(<<"content-encoding">>,Headers),
 	Body = npm_fetcher:decode_body(Encoder, Final),
