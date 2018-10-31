@@ -42,5 +42,12 @@ add(Name,Version,Path)->
     Version:: binary(), Path :: binary(),Type :: boolean()) -> {atomic,ok} | {aborted,term()}.
 add(Name,Version,Path,Type)->
 	Package = #tarball{name = Name,version = Version,path = Path,private = Type},
-	F = fun() -> mnesia:write(Package) end,
+	F = fun() -> 
+		case ai_mnesia_operation:one_or_none(find(Name,Version)) of
+			not_found ->mnesia:write(Package);
+			Record -> 
+				mnesia:delete_object(Record),
+				mnesia:write(Package)
+		end
+	end,
 	mnesia:transaction(F).

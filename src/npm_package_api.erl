@@ -18,25 +18,26 @@ store_tarball(Scope,Name,Version,Filename,Data)->
         {ok,Fd} -> 
             ai_blob_file:write(Fd,Data),
             {ok,_NewFd,Digest} = ai_blob_file:close(Fd),
-            case npm_tarball_storage:store(TmpFile,Digest,Scope,Filename) of 
+            DigestString = ai_strings:hash_to_string(Digest,160,lower),
+            case npm_tarball_storage:store(TmpFile,DigestString,Scope,Filename) of 
                 {ok,FinalFile} -> npm_tarball_mnesia:add({Scope,Name},Version,FinalFile,true);
                 Error -> Error
             end;
         Error -> Error
     end.
-save_tarball({Scope,Name} = ScopeName,[{Filename,Other}|Rest])->
+save_tarball({Scope,Name},[{Filename,Other}])->
 	Data = proplists:get_value(?DATA,Other),
 	Decode = base64:decode(Data),
     Version = npm_package:version(Name,Filename),
-    store_tarball(Scope,Name,Version,Filename,Decode),
-    save_tarball(ScopeName,Rest).
+    store_tarball(Scope,Name,Version,Filename,Decode).
 
 merge_package(ScopeName,Json)->
     case ai_mnesia_operation:one_or_none(npm_package_mnesia:find(ScopeName)) of 
         not_found -> npm_package_mnesia:add(ScopeName,jsx:encode(Json),true);
         Item -> 
-            MergedJson = npm_package:merge_package(jsx:decode(Item),Json),
-            npm_package_mnesia:add(ScopeName,jsx:encode(MergedJson))
+            Old = Item#package.meta,
+            MergedJson = npm_package:merge(jsx:decode(Old),Json),
+            npm_package_mnesia:add(ScopeName,jsx:encode(MergedJson),true)
     end.
 
 req(?PUT,Req,State)->
@@ -84,7 +85,9 @@ fetch_with_private(Req)->
     {ScopeName,Version} = name_version(Req),
     case ai_mnesia_operation:one_or_none(npm_package_mnesia:find(ScopeName,true)) of 
          not_found -> fetch_with_cache(Req);
-         Record -> reply_version(Version,Record,?PACKAGE_HEADERS,npm_req:server_name(Req))
+         Record -> 
+            io:format("use private package: ~p~n",[ScopeName]),
+            reply_version(Version,Record,?PACKAGE_HEADERS,npm_req:server_name(Req))
     end.
   
 fetch_with_cache(Req)->
