@@ -14,7 +14,7 @@ init(Req,State)->
                    cowboy_req:reply(Status,npm_req:res_headers(ResHeaders),Data,Req);
                {no_data,Status,ResHeaders}->
                    cowboy_req:reply(Status,npm_req:res_headers(ResHeaders),Req);
-               not_found ->
+               _ ->
                    Body = <<"Internal Server Error">>,
                    cowboy_req:reply(500, maps:from_list(?RESPONSE_HEADERS), Body, Req)
            end,

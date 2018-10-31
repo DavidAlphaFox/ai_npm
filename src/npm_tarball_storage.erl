@@ -13,20 +13,20 @@ rename(TmpFile,FinalFile)->
         DirError -> DirError
     end.
 
--spec tmpfile(Scope :: binary()|list(),Tarball :: binary() | list()) -> binary()| list().
+-spec tmpfile(Scope :: binary(),Tarball :: binary() ) -> binary()| list().
 tmpfile(Scope,Tarball)->
     Opts =    
         case Scope of
             undefined -> [{path,tmp_dir()}];
-            _ -> [{prefix,Scope},{path,tmp_dir()}]
+            _ -> [{prefix,erlang:binary_to_list(Scope)},{path,tmp_dir()}]
         end,
-    ai_tmp:name(Tarball,Opts).
--spec store(TmpFile :: list() | binary(),Scope :: list()|binary(),Tarball :: list()|binary()
-    ,Digest :: list()|binary()) -> {ok,list()|binary()} | {error, atom()}.
+    ai_tmp:name(erlang:binary_to_list(Tarball),Opts).
+-spec store(TmpFile :: list(),Scope :: binary(),Tarball :: binary()
+    ,Digest :: list()) -> {ok,list()|binary()} | {error, atom()}.
 store(TmpFile,Digest,Scope,Tarball)->
     Dir = case Scope of
             undefined -> filename:join([storage_dir(), Digest]);
-            _ -> filename:join([storage_dir(), Scope,Digest])
+            _ -> filename:join([storage_dir(), erlang:binary_to_list(Scope),Digest])
         end,
     FinalFile = filename:join([Dir,Tarball]),
     rename(TmpFile,FinalFile).

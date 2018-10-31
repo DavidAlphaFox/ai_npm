@@ -44,11 +44,11 @@ cache(no_data,Url,ResHeaders,Status,Tar)->
 cache(data,Url,Headers,Path,Tar)->
     {Scope,Package,Version,_Tarball} = Tar,
     npm_tarball_mnesia:add({Scope,Package},Version,Path),
-    ai_http_cache:cache(Url,Headers,{Scope,Package,Version}).
+    ai_http_cache:cache(Url,{Scope,Package,Version},Headers).
 
 done(ResHeaders,Url,TmpFile,Digest,Tar) ->
-    {Scope,Package,Version,_Tarball} = Tar,
-    case npm_tarball_storage:store(TmpFile,Digest,Scope,Package) of
+    {Scope,Package,Version,Tarball} = Tar,
+    case npm_tarball_storage:store(TmpFile,Digest,Scope,Tarball) of
         {ok, FinalFile} -> 
             cache(data,Url,ResHeaders,FinalFile,Tar),
             {hit,{Scope,Package,Version},ResHeaders};
@@ -57,6 +57,7 @@ done(ResHeaders,Url,TmpFile,Digest,Tar) ->
 
 download(ConnPid,StreamRef,Url,ResHeaders,Tar)->
     {Scope,_Package,_Version,Tarball} = Tar,
+    io:format("download tarball ~p~n",[Tar]),
     Tmpfile = npm_tarball_storage:tmpfile(Scope,Tarball),
     case ai_blob_file:open_for_write(Tmpfile) of
         {ok, Fd} ->

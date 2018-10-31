@@ -20,12 +20,15 @@ do_on_cache(_,Ctx)->
 		{response, fin, Status, ResHeaders} ->
 	  		cache(no_data,Url,ResHeaders,Status,CacheKey);
       	{response, nofin, Status, ResHeaders} ->
-	  		{ok, Body} = gun:await_body(ConnPid, StreamRef),
-	  		Encoder = proplists:get_value(<<"content-encoding">>,ResHeaders),
-	  		Body2 = npm_fetcher:decode_body(Encoder, Body),
-	  		if  
-                Status  == 200 ->  cache(data,Url,ResHeaders,Body2,CacheKey);
-                true ->  {data,Status,ResHeaders,Body2}
+            case gun:await_body(ConnPid, StreamRef) of
+                {ok, Body}->
+	  		        Encoder = proplists:get_value(<<"content-encoding">>,ResHeaders),
+	  		        Body2 = npm_fetcher:decode_body(Encoder, Body),
+	  		        if  
+                        Status  == 200 ->  cache(data,Url,ResHeaders,Body2,CacheKey);
+                        true ->  {data,Status,ResHeaders,Body2}
+                    end;
+                Res -> Res 
             end
     end.
 
