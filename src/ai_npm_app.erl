@@ -29,7 +29,8 @@ start(_Type, _Args) ->
     npm_tarball_storage:ensure_default_storage(),
     Result = ai_npm_sup:start_link(),
     ai_mnesia:ensure(fun()-> create_db() end),
-    ai_idempotence_pool:named_pool(pkg),
+    ai_idempotence_pool:named_pool(tarball_pool),
+    ai_idempotence_pool:named_pool(package_pool,idempotence_task_notify_pool,npm_package_running_pool),
     Port = application:get_env(ai_npm,api_server_port,4873),
     {ok,_} = npm_api_server:start(Port),
     Result.

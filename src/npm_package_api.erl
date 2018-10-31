@@ -147,7 +147,7 @@ reply(Url,ResHeaders,Http,Name,Version)->
 
 fetch_without_cache(Url,Headers,Http,Name,Version) ->
     Ctx = [{url,Url},{headers,Headers},{cache_key,Name}],
-    case ai_idempotence_pool:task_add(pkg,Url,{npm_package_fetcher,do,[Ctx]}) of
+    case ai_idempotence_pool:task_add(package_pool,Url,Ctx) of
         {done,{hit,CacheKey,ResHeaders}} -> reply(Url,ResHeaders,Http,CacheKey,Version);
         {done,Result}-> Result;
         {error,_Error,_Reason} -> not_found

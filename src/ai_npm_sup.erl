@@ -3,11 +3,24 @@
 
 -export([start_link/0]).
 -export([init/1]).
--define(DEFAULT_NPM_CACHE_SIZE, "2GB").
--define(DEFAULT_NPM_CACHE_TTL, 3600000).
+
 start_link() ->
 	supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Procs = [],
-    {ok, {{one_for_one, 1, 5}, Procs}}.
+    SupFlags = #{strategy => one_for_one,
+                 intensity => 1,
+                 period => 5},
+    PoolSpecs = worker_pool_specs(),
+    {ok, {SupFlags, PoolSpecs}}.
+
+default_woker_pool()->
+      [
+       {npm_package_running_pool,
+        [{size,10},{worker_module,npm_package_task_worker},{strategy,fifo}],[]}
+      ].
+worker_pool_specs()->
+    lists:map(fun({Name, Args, WorkerArgs}) ->
+                      PoolArgs = [{name, {local, Name}}] ++ Args,
+                      poolboy:child_spec(Name, PoolArgs, WorkerArgs)
+              end, default_woker_pool()).
