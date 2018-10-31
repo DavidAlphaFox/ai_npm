@@ -1,7 +1,7 @@
 -module(ai_npm_app).
 -behaviour(application).
 
--include_lib("ailib/include/ailib.hrl").
+%%-include_lib("ailib/include/ailib.hrl").
 -include("npm_package.hrl").
 -include("npm_tarball.hrl").
 
