@@ -53,7 +53,7 @@ fetch_with_cache(Ctx,Req) ->
 
 fetch_without_cache(Url,Headers,Ctx) ->
     FetcherCtx = [{url,Url},{headers,Headers}] ++ Ctx, 
-    case ai_idempotence_pool:task_add(tarball_pool,Url,{npm_tarball_fetcher,do,[FetcherCtx]}) of
+    case ai_idempotence_pool:task_add(tarball_pool,Url,FetcherCtx) of
         {done,{hit,CacheKey,ResHeaders}} -> reply(Url,ResHeaders,CacheKey);
         {done,{error,_Any}} -> not_found;
         {done,Result} -> Result;

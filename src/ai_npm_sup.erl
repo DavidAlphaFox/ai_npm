@@ -17,7 +17,9 @@ init([]) ->
 default_woker_pool()->
       [
        {npm_package_running_pool,
-        [{size,10},{worker_module,npm_package_task_worker},{strategy,fifo}],[]}
+        [{size,10},{worker_module,npm_package_task_worker},{strategy,fifo}],[]},
+       {npm_tarball_running_pool,
+        [{size,10},{worker_module,npm_tarball_task_worker},{strategy,fifo}],[]}
       ].
 worker_pool_specs()->
     lists:map(fun({Name, Args, WorkerArgs}) ->

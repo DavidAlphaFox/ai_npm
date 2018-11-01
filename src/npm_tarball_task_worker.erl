@@ -6,7 +6,7 @@
 %%% @end
 %%% Created : 15 Oct 2018 by David Gao <david@laptop-02.local>
 %%%-------------------------------------------------------------------
--module(npm_package_task_worker).
+-module(npm_tarball_task_worker).
 
 -behaviour(gen_server).
 -behaviour(poolboy_worker).
@@ -30,8 +30,9 @@
 				url,
 				status,
 				headers,
-				cache_key,
-				buffer,
+                tarball,
+				fd,
+                tmpfile,
 				queue
 				}).
 
@@ -73,7 +74,7 @@ init(_Args) ->
 	{ok, #state{conn = undefined,mref = undefined, 
 				stream = undefined, current = undefined,
 				status = undefined,headers = undefined,
-				buffer = <<>>,queue = queue:new()}}.
+				fd = undefined,tmpfile = undefined,queue = queue:new()}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -141,26 +142,42 @@ handle_info({reschedule_tasks,Ctx}, State)->
 	State1 = do_task(Ctx,State),
 	{noreply,State1};
 handle_info({gun_response, ConnPid, StreamRef, fin, Status, Headers},
-	#state{conn = ConnPid,stream = StreamRef,current = Task,url = Url,cache_key = CacheKey} = State) -> 
+	#state{conn = ConnPid,stream = StreamRef,current = Task,url = Url,tarball = Tar} = State) -> 
 	State1 = kill_timer(State),
-	Result = process_task(Url,Status,Headers,CacheKey,no_data),
+	Result = process_task(Url,Status,Headers,Tar,no_data),
 	reply(Task,Result),
 	State2 = schedule_task(clean(State1)),
 	{noreply,State2};
 handle_info({gun_response, ConnPid, StreamRef, nofin, Status, Headers},
-	#state{conn = ConnPid,stream = StreamRef} = State) -> 
+	#state{conn = ConnPid,stream = StreamRef,current = Task, tarball = Tar} = State) -> 
 	State1 = kill_timer(State),
-	{noreply,State1#state{ status = Status,headers = Headers}};
+    {Scope,_Package,_Version,Tarball} = Tar,
+    Tmpfile = npm_tarball_storage:tmpfile(Scope,Tarball),
+    case ai_blob_file:open_for_write(Tmpfile) of
+        {ok,Fd} ->
+            {noreply,State1#state{ status = Status,headers = Headers,fd = Fd,tmpfile = Tmpfile}};
+        Error ->
+            reply(Task,Error),
+            State2 = schedule_task(clean(State1)),
+	        {noreply,State2}
+    end;
 
 handle_info({gun_data, ConnPid, StreamRef, nofin, Data},
-	#state{conn = ConnPid,stream = StreamRef,buffer = Buffer} = State)->
-		{noreply,State#state{buffer = <<Buffer/binary,Data/binary>>}};
+	#state{conn = ConnPid,stream = StreamRef,current = Task,fd = OFile} = State)->
+        case ai_blob_file:write(OFile, Data) of 
+            {ok,NewFd} -> {noreply,State#state{fd = NewFd}};
+            Error ->
+                reply(Task,Error),
+                State1 = schedule_task(clean(State)),
+	            {noreply,State1}
+        end;
 handle_info({gun_data, ConnPid, StreamRef, fin, Data},
 	#state{conn = ConnPid,stream = StreamRef,current = Task, 
 		url = Url,status = Status,headers = Headers,
-		cache_key = CacheKey,buffer = Buffer} = State)->
-	Final = <<Buffer/binary,Data/binary>>,
-	Result = process_task(Url,Status,Headers,CacheKey,Final),
+		tarball = Tar,fd = OFile,tmpfile = Tmpfile} = State)->
+    {ok,NewFd} = ai_blob_file:write(OFile, Data),
+	{ok,_NewFd2,Digest} = ai_blob_file:close(NewFd),
+	Result = process_task(Url,Status,Headers,Tar,{Tmpfile,Digest}),
 	reply(Task,Result),
 	State1 = schedule_task(clean(State)),
 	{noreply,State1};
@@ -246,10 +263,14 @@ conn(_Ctx,#state{conn = Conn} = State)->
 	{Conn,State}.
 
 clean(State)->
+    case State#state.fd of 
+        undefined -> ok;
+        Fd -> ai_blob_file:close(Fd)
+    end,
 	State#state{
 			stream = undefined, current = undefined,
 			status = undefined,headers = undefined,
-			cache_key = undefined, buffer = <<>>}.
+			tarball = undefined, fd = undefined,tmpfile = undefined}.
 
 down(MRef,Task,State)->
 	State1 = kill_timer(State),
@@ -274,12 +295,17 @@ schedule_task(#state{queue = Q} = State) ->
 			State
 	end.
 
-
+tarball(Ctx)->
+    Scope = proplists:get_value(scope,Ctx),
+    Version = proplists:get_value(version,Ctx),
+    Package = proplists:get_value(package,Ctx),
+    Tarball = proplists:get_value(tarball,Ctx),
+    {Scope,Package,Version,Tarball}.
 do_task(Ctx,State)->
     Url = proplists:get_value(url,Ctx),
-	CacheKey = proplists:get_value(cache_key,Ctx),
+	Tarball = tarball(Ctx),
     Fun = fun(CacheHint) ->
-        do_on_cache(CacheHint,Ctx,State#state{cache_key = CacheKey})
+        do_on_cache(CacheHint,Ctx,State#state{tarball = Tarball})
     end,
     npm_cache:run_cache(Url,{Fun,[]}).
 
@@ -297,36 +323,27 @@ do_on_cache(_,Ctx,State)->
     		StreamRef = gun:get(ConnPid, Url, ReqHeaders),
 			timer(?HTTP_TIMEOUT,{kill_tasks,StreamRef},State1#state{stream = StreamRef,url = Url})
 	end.
-process_task(Url,Status,Headers,CacheKey,no_data)->cache(no_data,Url,Headers,Status,CacheKey);
-process_task(Url,Status,Headers,CacheKey,Final)->
-	Encoder = proplists:get_value(<<"content-encoding">>,Headers),
-	Body = npm_fetcher:decode_body(Encoder, Final),
-	if  
-    	Status  == 200 ->  cache(data,Url,Headers,Body,CacheKey);
-        true ->  {data,Status,Headers,Body}
-    end.
+process_task(Url,Status,Headers,Tar,no_data)->cache(no_data,Url,Headers,Status,Tar);
+process_task(Url,_Status,Headers,Tar,{Tmpfile,Digest})->
+	DigestString = ai_strings:hash_to_string(Digest,160,lower),
+	{Scope,Package,Version,Tarball} = Tar,
+    case npm_tarball_storage:store(Tmpfile,DigestString,Scope,Tarball) of
+        {ok, FinalFile} -> 
+            cache(data,Url,Headers,FinalFile,Tar),
+            {hit,{Scope,Package,Version},Headers};
+		Error -> Error
+	end.
 
-cache(data,Url,Headers,Body,_CacheKey)->
-    Meta = jsx:decode(Body),
-    CacheKey =
-        case proplists:get_value(<<"name">>,Meta) of
-            undefined -> undefined;
-            Name ->
-                ScopeName = npm_package:scope_name(Name),
-                {atomic,ok} = npm_package_mnesia:add(ScopeName,Body),
-                ScopeName
-        end,
-    case CacheKey of 
-        undefined ->
-            {data,Headers,Body};
-        _ ->
-            ai_http_cache:cache(Url,CacheKey,Headers),
-            {hit,CacheKey,Headers}
-    end;
-cache(no_data,Url,Headers,Status,CacheKey)->
+cache(no_data,Url,Headers,Status,Tar)->
+    {Scope,Package,Version,_Tarball} = Tar,
     if 
         Status == 304 ->
             ai_http_cache:cache(Url,Headers),
-            {hit,CacheKey,Headers};
-        true -> {no_data,Status,Headers}
-    end.
+            {hit,{Scope,Package,Version},Headers};
+        true ->
+            {no_data,Status,Headers}
+    end;
+cache(data,Url,Headers,Path,Tar)->
+    {Scope,Package,Version,_Tarball} = Tar,
+    npm_tarball_mnesia:add({Scope,Package},Version,Path),
+    ai_http_cache:cache(Url,{Scope,Package,Version},Headers).
