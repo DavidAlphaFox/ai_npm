@@ -40,6 +40,7 @@ ctx(Req)->
 fetch_with_cache(Ctx,Req) ->
     Url = cowboy_req:path(Req),
     Headers = cowboy_req:headers(Req),
+    io:format("tarball ctx ~p~n",[Ctx]),
     case ai_http_cache:validate_hit(Url) of 
         not_found ->
             io:format("Cache: [not_found] ~p~n",[Url]),
