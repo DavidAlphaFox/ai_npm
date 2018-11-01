@@ -48,7 +48,7 @@ replace_download(Url)->
     erlang:list_to_binary(NUrl).
 
 fetch_with_cache(Ctx,Req) ->
-    Url = replace_download(cowboy_req:path(Req)),
+    Url = cowboy_req:path(Req),
     Headers = cowboy_req:headers(Req),
     case ai_http_cache:validate_hit(Url) of 
         not_found ->
