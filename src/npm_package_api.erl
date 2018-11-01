@@ -97,14 +97,14 @@ fetch_with_cache(Req)->
     Headers = cowboy_req:headers(Req),
     case ai_http_cache:validate_hit(Url) of 
         not_found -> 
-            io:format("Cache: not_found: ~p~n",[ScopeName]),
+            io:format("Cache: [not_found] ~p~n",[ScopeName]),
             fetch_without_cache(Url,maps:to_list(Headers),ServerName,ScopeName,Version);
         {expired,Etag,Modified} -> 
-            io:format("Cache: expired: ~p~n",[ScopeName]),
+            io:format("Cache: [expired] ~p~n",[ScopeName]),
             NewHeaders = npm_req:req_headers(Etag,Modified,Headers),
             fetch_without_cache(Url,NewHeaders,ServerName,ScopeName,Version);
         {hit,CacheKey,ResHeaders}->
-            io:format("Cache: hit: ~p~n",[ScopeName]),
+            io:format("Cache: [hit] ~p~n",[ScopeName]),
             reply(Url,ResHeaders,ServerName,CacheKey,Version)
     end.
 
