@@ -1,12 +1,8 @@
 -module(npm_fetcher).
 
--export([decode_body/2]).
 -export([remote_host/1,remote_protocol/1,remote_port/1]).
 -export([tls/1,headers/1]).
 -export([open/1]).
-
-decode_body(<<"gzip">>,Body)->zlib:gunzip(Body);
-decode_body(_,Body) -> Body.
 
 open(Ctx)->
     Host = remote_host(Ctx),

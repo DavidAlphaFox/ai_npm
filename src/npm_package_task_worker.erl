@@ -300,7 +300,7 @@ do_on_cache(_,Ctx,State)->
 process_task(Url,Status,Headers,CacheKey,no_data)->cache(no_data,Url,Headers,Status,CacheKey);
 process_task(Url,Status,Headers,CacheKey,Final)->
 	Encoder = proplists:get_value(<<"content-encoding">>,Headers),
-	Body = npm_fetcher:decode_body(Encoder, Final),
+	Body = npm_req:decode_http(Encoder, Final),
 	if  
     	Status  == 200 ->  cache(data,Url,Headers,Body,CacheKey);
         true ->  {data,Status,Headers,Body}

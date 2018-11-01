@@ -125,9 +125,10 @@ reply_version(undefined,Record,ResHeaders,{Scheme,Host,Port})->
                                     [{V,NewP}| Acc]
                                 end,[],Versions),
     NewMeta = [{?VERSIONS,NewVersions}] ++ proplists:delete(?VERSIONS,Meta),
-    Data = jsx:encode(NewMeta),
+    Data = npm_req:encode_http(gzip,jsx:encode(NewMeta)),
     Size = erlang:byte_size(Data),
-    NewHeaders = ResHeaders ++ [{<<"content-length">>,erlang:integer_to_binary(Size)}],
+    NewHeaders = ResHeaders ++ 
+        [{<<"content-length">>,erlang:integer_to_binary(Size)},{<<"content-encoding">>,<<"gzip">>}],
     {data,NewHeaders,Data};
 reply_version(Version,Record,ResHeaders,{Scheme,Host,Port})->
     Meta = jsx:decode(Record#package.meta),
@@ -136,9 +137,10 @@ reply_version(Version,Record,ResHeaders,{Scheme,Host,Port})->
          undefined -> not_found;
          _ -> 
             NewMeta = replace_with_host(Scheme,Host,Port,VersionInfo),
-            Data = jsx:encode(NewMeta),
+            Data = npm_req:encode_http(gzip,jsx:encode(NewMeta)),
             Size = erlang:byte_size(Data),
-            NewHeaders = ResHeaders ++ [{<<"content-length">>,erlang:integer_to_binary(Size)}],
+            NewHeaders = ResHeaders ++ 
+                [{<<"content-length">>,erlang:integer_to_binary(Size)},{<<"content-encoding">>,<<"gzip">>}],
             {data,NewHeaders,Data}
     end.
 reply(Url,ResHeaders,Http,Name,Version)->
