@@ -36,9 +36,19 @@ ctx(Req)->
     Ctx = [{scope,Scope},{package,Package},{tarball,Tarball},{version,Version}],
     {Scope,Package,Version,Tarball,Ctx}.
 
+replace_download(Url)->
+    L = string:tokens(erlang:binary_to_list(Url),"/"),
+    NL = lists:map(fun(I)-> 
+                    if 
+                        I == "downalod" -> "-";
+                        true -> I
+                    end
+                end,L),
+    NUrl = lists:flatten(["/",string:join(NL,"/")]),
+    erlang:list_to_binary(NUrl).
 
 fetch_with_cache(Ctx,Req) ->
-    Url = cowboy_req:path(Req),
+    Url = replace_download(cowboy_req:path(Req)),
     Headers = cowboy_req:headers(Req),
     case ai_http_cache:validate_hit(Url) of 
         not_found ->
