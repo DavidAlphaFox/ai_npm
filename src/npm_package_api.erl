@@ -86,7 +86,6 @@ fetch_with_private(Req)->
     case ai_mnesia_operation:one_or_none(npm_package_mnesia:find(ScopeName,true)) of 
          not_found -> fetch_with_cache(Req);
          Record -> 
-            io:format("use private package: ~p~n",[ScopeName]),
             reply_version(Version,Record,?PACKAGE_HEADERS,npm_req:server_name(Req))
     end.
   

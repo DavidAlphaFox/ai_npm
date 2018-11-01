@@ -9,7 +9,8 @@ start(Port) ->
                     %% {"/-/user/:user",npm_api_user,[]},
                     {"/[:scope]/:package/download/[:scope]/:tarball",npm_tarball_api,[yarn]},
                     {"/[:scope]/:package/-/:tarball", npm_tarball_api,[npm]},
-                    {"/:scope/[:package/[:version]]",npm_package_api,[npm]}
+                    {"/:scope/[:package/[:version]]",npm_package_api,[npm]},
+                    {'_',npm_unknown_api,[]}
                     ]},
     Dispatch = cowboy_router:compile([Router]),
     io:format("Dispatch ~p~n",[Dispatch]),

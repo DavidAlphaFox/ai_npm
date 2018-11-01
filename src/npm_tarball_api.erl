@@ -32,7 +32,6 @@ ctx(Req)->
     Scope = cowboy_req:binding(scope,Req),
     Package = cowboy_req:binding(package,Req),
     Tarball = cowboy_req:binding(tarball,Req),
-    io:format("npm tarball: ~p ~p ~n",[Package,Tarball]),
     Version  = npm_package:version(Package,Tarball),
     Ctx = [{scope,Scope},{package,Package},{tarball,Tarball},{version,Version}],
     {Scope,Package,Version,Tarball,Ctx}.
@@ -43,11 +42,14 @@ fetch_with_cache(Ctx,Req) ->
     Headers = cowboy_req:headers(Req),
     case ai_http_cache:validate_hit(Url) of 
         not_found ->
+            io:format("Cache: [not_found] ~p~n",[Url]),
             fetch_without_cache(Url,maps:to_list(Headers),Ctx);
         {expired,Etag,Modified} ->
+            io:format("Cache: [expired] ~p~n",[Url]),
             NewHeaders = npm_req:req_headers(Etag,Modified,Headers),
             fetch_without_cache(Url,NewHeaders,Ctx);
         {hit,CacheKey,ResHeaders}->
+            io:format("Cache: [hit] ~p~n",[Url]),
             reply(Url,ResHeaders,CacheKey)
     end.
 
