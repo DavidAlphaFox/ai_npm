@@ -126,15 +126,21 @@ reply_version(undefined,Record,ResHeaders,{Scheme,Host,Port})->
                                     [{V,NewP}| Acc]
                                 end,[],Versions),
     NewMeta = [{?VERSIONS,NewVersions}] ++ proplists:delete(?VERSIONS,Meta),
-    {data,ResHeaders,jsx:encode(NewMeta)};
+    Data = jsx:encode(NewMeta),
+    Size = erlang:byte_size(Data),
+    NewHeaders = ResHeaders ++ [{<<"content-length">>,erlang:integer_to_binary(Size)}],
+    {data,NewHeaders,Data};
 reply_version(Version,Record,ResHeaders,{Scheme,Host,Port})->
     Meta = jsx:decode(Record#package.meta),
     VersionInfo = npm_package:version_info(Version,Meta),
     case VersionInfo of 
          undefined -> not_found;
          _ -> 
-             NewMeta = replace_with_host(Scheme,Host,Port,VersionInfo),
-             {data,ResHeaders,jsx:encode(NewMeta)}
+            NewMeta = replace_with_host(Scheme,Host,Port,VersionInfo),
+            Data = jsx:encode(NewMeta),
+            Size = erlang:byte_size(Data),
+            NewHeaders = ResHeaders ++ [{<<"content-length">>,erlang:integer_to_binary(Size)}],
+            {data,NewHeaders,Data}
     end.
 reply(Url,ResHeaders,Http,Name,Version)->
     case ai_mnesia_operation:one_or_none(npm_package_mnesia:find(Name)) of 
