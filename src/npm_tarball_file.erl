@@ -1,54 +1,48 @@
 %%%-------------------------------------------------------------------
-%%% @author  <david@laptop-02.local>
-%%% @copyright (C) 2018, 
+%%% @author David Gao <david@Davids-MacBook-Pro.local>
+%%% @copyright (C) 2018, David Gao
 %%% @doc
 %%%
 %%% @end
-%%% Created :  5 Nov 2018 by  <david@laptop-02.local>
+%%% Created :  5 Nov 2018 by David Gao <david@Davids-MacBook-Pro.local>
 %%%-------------------------------------------------------------------
--module(npm_tarball_manager).
+-module(npm_tarball_file).
 
 -behaviour(gen_server).
 
 %% API
--export([start_link/0]).
+-export([start_link/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	terminate/2, code_change/3, format_status/2]).
 
--export([register/1,unregister/1,file/1]).
-
 -define(SERVER, ?MODULE).
 
 -record(state, {
-	path,
-	monitors
-}).
+        tarball :: tuple(),
+        url :: binary(),
+        clients :: list(),
+        waiters :: binary(),
+        mref :: reference(),
+        tref :: reference()
+    }).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
-register(Path)->
-	Self = self(),
-	gen_sever:call(?SERVER,{register,Path,Self}).
-unregister(Path)->
-	Self = self(),
-	gen_server:call(?SERVER,{unregister,Path,Self}).
-file(Path)->
-	gen_server:call(?SERVER,{file,Path}).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts the server
 %% @end
 %%--------------------------------------------------------------------
--spec start_link() -> {ok, Pid :: pid()} |
+-spec start_link(Opts :: proplists:proplists()) -> {ok, Pid :: pid()} |
 	{error, Error :: {already_started, pid()}} |
 	{error, Error :: term()} |
 	ignore.
-start_link() ->
-	gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+start_link(Opts) ->
+	gen_server:start_link(?MODULE, Opts, []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -65,12 +59,12 @@ start_link() ->
 	{ok, State :: term(), hibernate} |
 	{stop, Reason :: term()} |
 	ignore.
-init([]) ->
-	%% process_flag(trap_exit, true),
-	{ok, #state{
-		path = maps:new(),
-		monitors = maps:new()
-	}}.
+init(Opts) ->
+    Url = proplists:get_value(url,Opts),
+    Tarball = proplists:get_value(tarball,Opts),
+	process_flag(trap_exit, true),
+    {ok, #state{url = Url,tarball = Tarball,clients = [],waiters = [],
+                mref = undefined,tref = undefined}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -87,19 +81,6 @@ init([]) ->
 	{noreply, NewState :: term(), hibernate} |
 	{stop, Reason :: term(), Reply :: term(), NewState :: term()} |
 	{stop, Reason :: term(), NewState :: term()}.
-handle_call({register,Path,Pid},_From,#state{path = P,monitors = M } = State)->
-	Reply = ok,
-	P2 = maps:put(Path,Pid,P),
-	M2 = ai_process:monitor_process(Pid,M),
-	{reply,Reply,State#state{path = P2,monitors = M2}};
-handle_call({unregister,Path,Pid},_From,#state{path = P,monitors = M} = State)->
-	Reply = ok,
-	M2 = ai_process:demonitor_process(Pid,M),
-	P2 = maps:remove(Path,P),
-	{ok,Reply,State#state{path = P2,monitors = M2}};
-handle_call({file,Path},_From,#state{path = P} = State)->
-	Reply = maps:get(Path,P,undefined),
-	{ok,Reply,State};
 handle_call(_Request, _From, State) ->
 	Reply = ok,
 	{reply, Reply, State}.
@@ -129,10 +110,6 @@ handle_cast(_Request, State) ->
 	{noreply, NewState :: term(), Timeout :: timeout()} |
 	{noreply, NewState :: term(), hibernate} |
 	{stop, Reason :: normal | term(), NewState :: term()}.
-handle_info({'DOWN', MRef, process, Pid, _Reason},#state{path = P,monitors = M} = State )->
-	M2 = ai_process:demonitor_process(MRef,M),
-	P2 = maps:filter(fun(_Path,PPid)-> PPid /= Pid end,P ),
-	{noreply,State#state{path = P2,monitors = M2}};
 handle_info(_Info, State) ->
 	{noreply, State}.
 
