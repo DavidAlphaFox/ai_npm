@@ -165,7 +165,7 @@ handle_info({gun_response, ConnPid, StreamRef, nofin, Status, Headers},
 handle_info({gun_data, ConnPid, StreamRef, nofin, Data},
 	#state{conn = ConnPid,stream = StreamRef,current = Task,fd = OFile} = State)->
         case ai_blob_file:write(OFile, Data) of 
-            {ok,NewFd} -> {noreply,State#state{fd = NewFd}};
+            {ok,NewFd,_Size} -> {noreply,State#state{fd = NewFd}};
             Error ->
                 reply(Task,Error),
                 State1 = schedule_task(clean(State)),
@@ -175,7 +175,7 @@ handle_info({gun_data, ConnPid, StreamRef, fin, Data},
 	#state{conn = ConnPid,stream = StreamRef,current = Task, 
 		url = Url,status = Status,headers = Headers,
 		tarball = Tar,fd = OFile,tmpfile = Tmpfile} = State)->
-    {ok,NewFd} = ai_blob_file:write(OFile, Data),
+    {ok,NewFd,_Size} = ai_blob_file:write(OFile, Data),
 	{ok,_NewFd2,Digest} = ai_blob_file:close(NewFd),
 	Result = process_task(Url,Status,Headers,Tar,{Tmpfile,Digest}),
 	reply(Task,Result),
