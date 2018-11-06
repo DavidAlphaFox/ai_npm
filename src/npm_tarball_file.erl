@@ -25,7 +25,8 @@
         clients :: list(),
         waiters :: binary(),
         mref :: reference(),
-        tref :: reference()
+        tref :: reference(),
+		fd :: tuple()
     }).
 
 %%%===================================================================
@@ -64,7 +65,7 @@ init(Opts) ->
     Tarball = proplists:get_value(tarball,Opts),
 	process_flag(trap_exit, true),
     {ok, #state{url = Url,tarball = Tarball,clients = [],waiters = [],
-                mref = undefined,tref = undefined}}.
+                mref = undefined,tref = undefined,fd = undefined}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -81,6 +82,15 @@ init(Opts) ->
 	{noreply, NewState :: term(), hibernate} |
 	{stop, Reason :: term(), Reply :: term(), NewState :: term()} |
 	{stop, Reason :: term(), NewState :: term()}.
+handle_call(open,_From,#state{fd = undefined,tarball = Tarball} = State)->
+	Filename = npm_tarball_storage:filename(Tarball),
+	case ai_resume_file:opne(Filename) of 
+		{ok,Fd}->
+			{ok,Received} = ai_resume_file:received(Fd),
+			{reply,{ok,Received},State#state{fd = Fd}};
+		Error ->
+			{reply,Error,State}
+	end;
 handle_call(_Request, _From, State) ->
 	Reply = ok,
 	{reply, Reply, State}.

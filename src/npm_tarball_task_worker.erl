@@ -27,13 +27,9 @@
 				stream,
 				timer,
 				current,
-				url,
-				status,
-				headers,
-                tarball,
 				fd,
-                tmpfile,
-				queue
+				queue,
+				stage
 				}).
 
 %%%===================================================================
@@ -141,10 +137,17 @@ handle_info({kill_tasks,_StreamRef}, #state{mref = MRef,current = Task} = State)
 handle_info({reschedule_tasks,Ctx}, State)->
 	State1 = do_task(Ctx,State),
 	{noreply,State1};
-handle_info({gun_response, ConnPid, StreamRef, fin, Status, Headers},
-	#state{conn = ConnPid,stream = StreamRef,current = Task,url = Url,tarball = Tar} = State) -> 
+handle_info({gun_response,ConnPid,StreamRef,fin,Status,Headers},
+	#state{conn = ConnPid,stream = StreamRef,stage = head} = State)->
+	Ctx = current_task_ctx(State),
 	State1 = kill_timer(State),
-	Result = process_task(Url,Status,Headers,Tar,no_data),
+	State2 = process_head(Status,Headers,Ctx,State1),
+	{noreply,State2};
+handle_info({gun_response, ConnPid, StreamRef, fin, Status, Headers},
+	#state{conn = ConnPid,stream = StreamRef,} = State) -> 
+	Ctx = current_task_ctx(State)
+	State1 = kill_timer(State),
+	Result = process_task(Ctx,Status,Headers,no_data),
 	reply(Task,Result),
 	State2 = schedule_task(clean(State1)),
 	{noreply,State2};
@@ -161,7 +164,6 @@ handle_info({gun_response, ConnPid, StreamRef, nofin, Status, Headers},
             State2 = schedule_task(clean(State1)),
 	        {noreply,State2}
     end;
-
 handle_info({gun_data, ConnPid, StreamRef, nofin, Data},
 	#state{conn = ConnPid,stream = StreamRef,current = Task,fd = OFile} = State)->
         case ai_blob_file:write(OFile, Data) of 
@@ -235,6 +237,7 @@ format_status(_Opt, Status) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
 timer(Timeout,TimeoutMsg,#state{timer = PrevRef} = State)->
     if PrevRef == undefined -> ok;
        true -> erlang:cancel_timer(PrevRef)
@@ -246,9 +249,6 @@ kill_timer(#state{timer = PrevRef} =State)->
        true -> erlang:cancel_timer(PrevRef)
     end,
 	State#state{timer = undefined}.
-demonitor_process(undefined) -> true;
-demonitor_process(MRef) -> erlang:demonitor(MRef).
-
 conn(Ctx,#state{conn = undefined} = State)->
 	{ok, ConnPid} = npm_fetcher:open(Ctx),
 	MRef = erlang:monitor(process, ConnPid),
@@ -261,6 +261,12 @@ conn(Ctx,#state{conn = undefined} = State)->
 	end;
 conn(_Ctx,#state{conn = Conn} = State)->
 	{Conn,State}.
+
+
+current_task_ctx(State)->
+	{_Key,Ctx,_Caller} = State#state.current,
+	Ctx.
+
 
 clean(State)->
     case State#state.fd of 
@@ -290,7 +296,7 @@ schedule_task(#state{queue = Q} = State) ->
         {{value,NextTask},NQ} ->
 			{_Key,Ctx,_Caller} = NextTask,
 			State1 = State#state{current = NextTask,queue = NQ},
-			do_task(Ctx,State1);
+			run_cache(Ctx,State1);
 		_ ->
 			State
 	end.
@@ -301,28 +307,9 @@ tarball(Ctx)->
     Package = proplists:get_value(package,Ctx),
     Tarball = proplists:get_value(tarball,Ctx),
     {Scope,Package,Version,Tarball}.
-do_task(Ctx,State)->
-    Url = proplists:get_value(url,Ctx),
-	Tarball = tarball(Ctx),
-    Fun = fun(CacheHint) ->
-        do_on_cache(CacheHint,Ctx,State#state{tarball = Tarball})
-    end,
-    npm_cache:run_cache(Url,{Fun,[]}).
 
-do_on_cache({hit,CacheKey,Headers},_Ctx,State)-> 
-	gen_server:cast(self(),{hit,CacheKey,Headers}),
-	State;
-do_on_cache(_,Ctx,State)->
-    Url = proplists:get_value(url, Ctx),
-    ReqHeaders = npm_fetcher:headers(Ctx),
-	{ConnPid,State1} = conn(Ctx,State),
-	case ConnPid of 
-		undefined -> 
-			timer(?RESCHEDULE_TIMEOUT,{reschedule_tasks,Ctx},State1);
-		_ ->
-    		StreamRef = gun:get(ConnPid, Url, ReqHeaders),
-			timer(?HTTP_TIMEOUT,{kill_tasks,StreamRef},State1#state{stream = StreamRef,url = Url})
-	end.
+
+
 process_task(Url,Status,Headers,Tar,no_data)->cache(no_data,Url,Headers,Status,Tar);
 process_task(Url,_Status,Headers,Tar,{Tmpfile,Digest})->
 	DigestString = ai_strings:hash_to_string(Digest,160,lower),
@@ -347,3 +334,71 @@ cache(data,Url,Headers,Path,Tar)->
     {Scope,Package,Version,_Tarball} = Tar,
     npm_tarball_mnesia:add({Scope,Package},Version,Path),
     ai_http_cache:cache(Url,{Scope,Package,Version},Headers).
+
+do_head(Ctx,State)->
+	Url = proplists:get_value(url,Ctx),
+	ReqHeaders = npm_fetcher:headers(Ctx),
+	{ConnPid,State1} = conn(Ctx,State),
+	case ConnPid of 
+		undefined -> 
+			timer(?RESCHEDULE_TIMEOUT,{reschedule_tasks,Ctx},State1);
+		_ ->
+    		StreamRef = gun:head(ConnPid, Url, ReqHeaders),
+			timer(?HTTP_TIMEOUT,{kill_tasks,StreamRef},
+				State1#state{stream = StreamRef,url = Url,stage = head})
+	end.
+process_head(Status,Headers,Ctx,State)->
+	if 
+		Status == 200 -> do_get(ai_http:accept_ranges(Headers),Headers,Ctx,State);
+		true -> do_get(false,Headers,Ctx,State)
+	end.
+
+do_get(false,_Headers,Ctx,State)->
+	do_task(Ctx,State#state{stage = reset});
+do_get(true,Headers,Ctx,State)->
+	LastModified = ai_http:last_modified(Headers),
+	Etag = ai_http:etag(Headers),
+	Length = ai_http:content_length(Headers),
+	case npm_tarball_file:resume(Fd,{Etag,LastModified,Length}) of 
+		{ok,Received} -> do_task(Ctx,State#state{stage = {resume,Received}});
+		Error -> timer(?RESCHEDULE_TIMEOUT,{reschedule_tasks,Ctx},State1)
+	end.
+do_task(Ctx,#state{stage = Stage} =  State)->
+	case Stage of
+		reset -> 
+			Headers = npm_fetcher:headers(Ctx),
+			do_task(Ctx,Headers,State#state{stage = reset}).
+		{resume,Received} ->
+			BinInteger = erlang:integer_to_binary(Received),
+			Headers = npm_fetcher:headers(Ctx) ++ [{<<"range">>,<<"bytes=",BinInteger/binary,"-">>}],
+			do_task(Ctx,Headers,State#state{stage = resume})
+	end.
+	
+do_task(Ctx,Headers,State)->
+	Url = proplists:get_value(url,Ctx),
+	case ConnPid of 
+		undefined -> 
+			timer(?RESCHEDULE_TIMEOUT,{reschedule_tasks,Ctx},State1);
+		_ ->
+    		StreamRef = gun:head(ConnPid, Url, Headers),
+			timer(?HTTP_TIMEOUT,{kill_tasks,StreamRef},
+				State1#state{stream = StreamRef})
+	end.
+run_cache(Ctx,State)->
+    Url = proplists:get_value(url,Ctx),
+    Fun = fun(CacheHint) ->
+        run_cache(CacheHint,Ctx,State)
+    end,
+    npm_cache:run_cache(Url,{Fun,[]}).
+run_cache({hit,CacheKey,Headers},_Ctx,State)-> 
+	gen_server:cast(self(),{hit,CacheKey,Headers}),
+	State;
+run_cache(_,Ctx,State)->
+	Url = proplists:get_value(url,Ctx),
+	case npm_tarball_manager:file(Url) of 
+		undefined -> do_head(Ctx,State)
+		Pid -> 
+			gen_server:cast(self(),{pid,Pid}),
+			State
+	end.
+			

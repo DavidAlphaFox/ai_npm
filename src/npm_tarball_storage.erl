@@ -1,5 +1,5 @@
 -module(npm_tarball_storage).
--export([tmpfile/2,store/4]).
+-export([tmpfile/2,store/4,filename/1]).
 -export([ensure_default_storage/0]).
 
 -spec rename(TmpFile :: list() | binary(), FinalFile :: list() | binary()) -> {ok,list()|binary()} | {error, atom()}.
@@ -30,6 +30,12 @@ store(TmpFile,Digest,Scope,Tarball)->
         end,
     FinalFile = filename:join([Dir,Tarball]),
     rename(TmpFile,FinalFile).
+
+filename({Scope,Package,Version,Tarball})->
+    case Scope of 
+        undefined -> filename:join([Package,Version,Tarball]);
+        _ -> filename:join([Scope,Package,Version,Tarball])
+    end.
 
 storage_dir()-> ai_file:priv_dir(ai_npm,"storage").
 tmp_dir()-> ai_file:priv_dir(ai_npm,"tmp").
