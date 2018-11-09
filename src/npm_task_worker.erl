@@ -246,7 +246,7 @@ open(#state{conn = undefiend,uplink = Ctx,monitors = M} = State)->
         {error,_Reason} -> {undefiend,State};
         {ok,_Protocol} ->
             M1 = ai_process:monitor_process(ConnPid,M),
-            {ConnPid,State#state{conn = ConnPid}}
+            {ConnPid,State#state{conn = ConnPid,monitors = M1}}
     end;
 open(#state{conn = ConnPid} = State)-> {ConnPid,State}.
 do_task(Caller,Ctx,State)->
