@@ -122,9 +122,11 @@ init(_Args) ->
 	{noreply, NewState :: term(), hibernate} |
 	{stop, Reason :: term(), Reply :: term(), NewState :: term()} |
 	{stop, Reason :: term(), NewState :: term()}.
-handle_call({run,Url,Ctx},_From,State)->
+handle_call({run,Url,Ctx},_From,#state{url = undefined} = State)->
 	{Result,State1} = do_task(Url,Ctx,State),
 	{reply,Result,State1};
+handle_call({run,_Url,_Ctx},_From,#state{url = _Any} = State)->
+	{reply,{error,not_available},State};
 handle_call({wait,Caller,Url},From,#state{url = Url} = State)->
 	State1 = add_waiter(Caller,From,State),
 	{noreply,State1};

@@ -139,10 +139,11 @@ handle_info({timeout,StreamRef},#state{conn = ConnPid, stream = StreamRef, recei
 handle_info({timeout,_StreamRef},State)->
     {noreply,State};
 handle_info({gun_response, ConnPid, StreamRef, fin, Status, Headers},
-	#state{conn = ConnPid,stream = StreamRef,receiver  = Receiver,timer = Timer} = State) -> 
+	#state{conn = ConnPid,stream = StreamRef,receiver  = Receiver,timer = Timer,monitors = M} = State) -> 
     Timer1 = ai_timer:cancel(Timer),
     Receiver ! {response,fin,Status,Headers},
-    {noreply,State#state{stream = undefiend,receiver = undefiend, task = undefiend, timer = Timer1}};
+    M1 = ai_process:demonitor_process(Receiver,M),
+    {noreply,State#state{stream = undefiend,receiver = undefiend, task = undefiend, timer = Timer1,monitors = M1}};
 
 handle_info({gun_response, ConnPid, StreamRef, nofin, Status, Headers},
 	#state{conn = ConnPid,stream = StreamRef,receiver  = Receiver,timer = Timer} = State) -> 
@@ -156,10 +157,11 @@ handle_info({gun_data, ConnPid, StreamRef, nofin, Data},
     Receiver ! {data,nofin,Data},
 	{noreply,State#state{timer = Timer1}};
 handle_info({gun_data, ConnPid, StreamRef, fin, Data},
-	#state{conn = ConnPid,stream = StreamRef,receiver  = Receiver,timer = Timer} = State)->
+	#state{conn = ConnPid,stream = StreamRef,receiver  = Receiver,timer = Timer,monitors = M} = State)->
     Timer1 = ai_timer:cancel(Timer),
     Receiver ! {data,fin,Data},
-    {noreply,State#state{stream = undefiend, receiver = undefiend, task = undefiend, timer = Timer1}};
+    M1 = ai_process:demonitor_process(Receiver,M),
+    {noreply,State#state{stream = undefiend, receiver = undefiend, task = undefiend, timer = Timer1,monitors = M1}};
     
 handle_info({'DOWN', _MRef, process, Pid, _Reason},#state{conn = ConnPid,receiver = Receiver} = State )->
     State1 = if
