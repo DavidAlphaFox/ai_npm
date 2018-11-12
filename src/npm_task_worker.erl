@@ -161,7 +161,7 @@ handle_info({gun_data, ConnPid, StreamRef, fin, Data},
     Receiver ! {data,fin,Data},
     {noreply,State#state{stream = undefiend, receiver = undefiend, task = undefiend, timer = Timer1}};
     
-handle_info({'DOWN', MRef, process, Pid, _Reason},#state{conn = ConnPid,receiver = Receiver,monitors = M} = State )->
+handle_info({'DOWN', _MRef, process, Pid, _Reason},#state{conn = ConnPid,receiver = Receiver} = State )->
     State1 = if
         Pid == ConnPid -> gun_down(State);  
         Pid == Receiver ->  receiver_down(State);

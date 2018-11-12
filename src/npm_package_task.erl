@@ -21,8 +21,14 @@
 
 -define(SERVER, ?MODULE).
 -define(PACKAGE_TASK_POOL,package_task_pool).
+-define(NPM_TASK_POOL,npm_task_pool).
 
--record(state, {}).
+-record(state, {
+	url,
+	waiters,
+	worker,
+	monitors
+}).
 
 %%%===================================================================
 %%% API
@@ -56,8 +62,7 @@ run_task(Url,Ctx,not_found)->
 run_task(Url,_Ctx,Pid)-> 
 	npm_package_task:wait(Pid,Url,true).
 run(Pid,Url,Ctx)->
-	Caller = self(),
-	gen_server:call(Pid,{run,Caller,Url,Ctx}).
+	gen_server:call(Pid,{run,Url,Ctx}).
 wait(Pid,Url,Before) ->
 	Caller = self(),
 	case Before of 
@@ -117,6 +122,14 @@ init(_Args) ->
 	{noreply, NewState :: term(), hibernate} |
 	{stop, Reason :: term(), Reply :: term(), NewState :: term()} |
 	{stop, Reason :: term(), NewState :: term()}.
+handle_call({run,Url,Ctx},_From,State)->
+	{Result,State1} = do_task(Url,Ctx,State),
+	{reply,Result,State1};
+handle_call({wait,Caller,Url},From,#state{url = Url} = State)->
+	State1 = add_waiter(Caller,From,State),
+	{noreply,State1};
+handle_call({wait,_Caller,_Url},_From,State)->
+	{reply,{error,gone},State};
 handle_call(_Request, _From, State) ->
 	Reply = ok,
 	{reply, Reply, State}.
@@ -192,3 +205,27 @@ format_status(_Opt, Status) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+add_waiter(Caller,From,#state{waiters = W,monitors = M } = State)->
+	M1 = ai_process:monitor_process(Caller,M),
+	State#state{monitors = M1,waiters = [{Caller,From}|W]}.
+
+do_task(Url,Ctx,State)->
+	NewCtx = [{url,Url} | Ctx],
+	Self = self(),
+	case npm_task_manager:register_task(Url,Self) of 
+		{run_task,Self}-> do_it(Url,NewCtx,State);
+		{run_task,Other}-> {{run_task,Other},State}
+	end.
+do_it(Url,Ctx,#state{monitors = M} = State)->
+	Self = self(),
+	RunningFun = fun(Worker)->
+		case npm_task_worker:run(Worker,Ctx) of 
+			ok -> 
+				M2 = ai_process:monitor_process(Worker,M),
+				{{run_task,Self},State#state{url = Url,worker = Worker,monitors = M2}};
+			not_available -> 
+				npm_task_manager:deregister_task(Url,Self),
+				{{error,not_available},State}
+		end		
+	end,
+	poolboy:transaction(?NPM_TASK_POOL, RunningFun).
