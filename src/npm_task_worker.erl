@@ -19,8 +19,7 @@
     terminate/2, code_change/3, format_status/2]).
 -export([run/2]).
 -define(SERVER, ?MODULE).
--define(RESCHEDULE_TIMEOUT,1000).
--define(HTTP_TIMEOUT,10000).
+-define(HTTP_TIMEOUT,3000).
 -record(state, {
                 conn,
                 stream,
@@ -255,7 +254,8 @@ receiver_down(#state{conn = ConnPid, receiver  = Receiver,timer = Timer, monitor
 open(#state{conn = undefined,uplink = Ctx,monitors = M} = State)->
     {ok,ConnPid} = npm_fetcher:open(Ctx),
     case gun:await_up(ConnPid) of 
-        {error,_Reason} -> {undefined,State};
+        {error,_Reason} -> 
+            {undefined,State};
         {ok,_Protocol} ->
             M1 = ai_process:monitor_process(ConnPid,M),
             {ConnPid,State#state{conn = ConnPid,monitors = M1}}
@@ -266,11 +266,10 @@ do_task(Caller,Ctx,State)->
     Headers = npm_fetcher:headers(Ctx),
     {ConnPid,State1} = open(State),
     case ConnPid of 
-        undefined -> 
-            {stop,not_available,State1};
+        undefined -> {stop,not_available,State1};
         _ ->
             StreamRef = gun:get(ConnPid,Url,Headers),
             Timer = State1#state.timer,
             Timer1 = ai_timer:start(?HTTP_TIMEOUT,{timeout,StreamRef},Timer),
-            {reply,ok,State1#state{timer = Timer1,receiver = Caller,task = Ctx}}
+            {reply,ok,State1#state{timer = Timer1, stream = StreamRef, receiver = Caller,task = Ctx}}
     end.

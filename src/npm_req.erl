@@ -2,11 +2,11 @@
 -export([req_headers/3,res_headers/1,server_name/1]).
 -export([encode_http/2,decode_http/2]).
 
-req_headers(undefined,undefined,Headers) -> maps:to_list(Headers);
-req_headers(Etag,undefined,Headers) ->  [{<<"if-none-match">>,Etag}] ++ maps:to_list(Headers);
-req_headers(undefined,Modified,Headers) -> [{<<"if-modified-since">>,Modified}] ++ maps:to_list(Headers);
+req_headers(undefined,undefined,Headers) -> Headers;
+req_headers(Etag,undefined,Headers) ->  [{<<"if-none-match">>,Etag}] ++ Headers;
+req_headers(undefined,Modified,Headers) -> [{<<"if-modified-since">>,Modified}] ++ Headers;
 req_headers(Etag,Modified,Headers)->
-    [{<<"if-none-match">>,Etag} , {<<"if-modified-since">>,Modified}] ++ maps:to_list(Headers).
+    [{<<"if-none-match">>,Etag} , {<<"if-modified-since">>,Modified}] ++ Headers.
 
 
 decode_http(<<"gzip">>,Body)->zlib:gunzip(Body);

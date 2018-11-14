@@ -76,11 +76,13 @@ wait(Pid,Url,Before) ->
 			%% 此处会存在另一种竟态，信号量一释放，可能fetcher就被立刻复用了
 			%% 因此会出现某个任务在wait之前到达，此时，应当返回一条消息，让等待进程进行重试
 			npm_task_manager:release(), 
-			gen_server:call(Pid,{wait,Caller,Url});
+			gen_server:call(Pid,{wait,Caller,Url},infinity);
 		false ->
-			R = gen_server:call(Pid,{wait,Caller,Url}),
-			npm_task_manager:release(),
-			R
+			try
+				gen_server:call(Pid,{wait,Caller,Url},infinity)
+			after
+				npm_task_manager:release()
+			end
 	end.
 
 %%--------------------------------------------------------------------
@@ -130,7 +132,6 @@ init(_Args) ->
 	{stop, Reason :: term(), NewState :: term()}.
 handle_call({run,Url,Ctx},_From,#state{url = undefined} = State)->
 	{Result,State1} = do_task(Url,Ctx,State),
-	io:format("I got result ~p~n",[Result]),
 	{reply,Result,State1};
 handle_call({run,_Url,_Ctx},_From,#state{url = _Any} = State)->
 	{reply,{error,not_available},State};
@@ -174,7 +175,7 @@ handle_info({response,fin,Status,Headers},#state{url = Url} = State)->
 	{noreply,State1};
 handle_info({response,nofin,Status,Headers},State)->
 	{noreply,State#state{status = Status,headers = Headers}};
-handle_info({data,nofin,Data},#state{buffer = Buffer} = State)->
+handle_info({data,nofin,Data} ,#state{buffer = Buffer} = State)->
 	{noreply,State#state{buffer = <<Buffer/binary,Data/binary>>}};
 handle_info({data,fin,Data},#state{url = Url,status = Status,headers = Headers,buffer = Buffer} = State)->
 	Result = cache(Url,Status,Headers,<<Buffer/binary,Data/binary>>),
@@ -187,7 +188,8 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason},#state{worker = Worker} = Sta
 			true -> remove_waiter(Pid,State)
 		end,
 	{noreply,State1};
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+	io:format("I got unhandle info ~p~n",[Info]),
 	{noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -201,7 +203,14 @@ handle_info(_Info, State) ->
 %%--------------------------------------------------------------------
 -spec terminate(Reason :: normal | shutdown | {shutdown, term()} | term(),
 	State :: term()) -> any().
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{url = Url}) ->
+	if
+		Url == undefined -> ok;
+		true ->
+			Self = self(),
+			io:format("deregister_task ~p~n",[Url]),
+			npm_task_manager:deregister_task(Url,Self)
+	end,
 	ok.
 
 %%--------------------------------------------------------------------
@@ -308,11 +317,13 @@ do_cache(Url,Headers,Data)->
 			ai_http_cache:cache(Url,CacheKey,Headers),
 			{hit,CacheKey,Headers}
 	end.
-notify_waiters(Result,#state{waiters = W,worker = Worker, monitors = M})->
+notify_waiters(Result,#state{url = Url,waiters = W,worker = Worker, monitors = M})->
 	M1 = lists:foldl(fun({Caller,From},Acc)->
 			NewAcc = ai_process:demonitor_process(Caller,Acc),
 			gen_server:reply(From,Result),
 			NewAcc
 		end,M,W),
 	ai_process:demonitor_process(Worker,M1),
+	Self = self(),
+	npm_task_manager:deregister_task(Url,Self),
 	reset().
