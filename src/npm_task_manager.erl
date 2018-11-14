@@ -3,6 +3,8 @@
 -export([lock/1,unlock/1, wait/0,release/0]).
 -export([find_task/2,register_task/2,deregister_task/2]).
 
+-define(TASK_TABLE,npm_task_table).
+
 -spec start(M :: integer(), S :: integer()) -> {module,atom} | {error,badarg}.
 start(M,S) 
     when erlang:is_integer(M) and erlang:is_integer(S) 
@@ -12,7 +14,7 @@ start(M,S)
             {ok,_Mutex} = ai_mutex:new(Name)
         end,lists:seq(0,M-1)),
     {ok,_Semphore} = ai_semaphore:new("npm_task",S),
-    npm_task_table = ets:new(npm_task_table,[set,public,named_table,{write_concurrency,true},{read_concurrency,true}]),
+    ?TASK_TABLE = ets:new(?TASK_TABLE,[set,public,named_table,{write_concurrency,true},{read_concurrency,true}]),
     ai_strings:dynamic_module("npm_task_counter.erl",counter_module(M));
 start(_M,_N) -> {error,badarg}.
 
@@ -47,7 +49,7 @@ find_task(Url,MFA)->
     ai_function:run_mfa(MFA,[R]).
 
 find_task(Url)->
-    case ets:lookup(npm_task_table,Url) of 
+    case ets:lookup(?TASK_TABLE,Url) of 
         [{Url,Pid}] -> Pid;
         [] -> not_found
     end.
@@ -55,7 +57,7 @@ register_task(Url,Pid)->
     ok = lock(Url),
     R = case find_task(Url) of 
         not_found ->  
-            ets:insert(npm_task_table,{Url,Pid}),
+            ets:insert(?TASK_TABLE,{Url,Pid}),
             {run_task,Pid};
         OtherPid -> {run_task,OtherPid}
     end,
@@ -66,7 +68,8 @@ deregister_task(Url,Pid)->
     R = case find_task(Url) of 
         not_found -> {error,not_found};
         Pid -> 
-            ets:delete(npm_task_table,Url),
+         
+            ets:delete(?TASK_TABLE,Url),
             {ok,Pid};
         OtherPid -> {error,not_owner,OtherPid}
     end,

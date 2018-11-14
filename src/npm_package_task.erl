@@ -113,6 +113,7 @@ start_link(Args) ->
 	{stop, Reason :: term()} |
 	ignore.
 init(_Args) ->
+	erlang:process_flag(trap_exit, true),
 	{ok,reset()}.
 
 %%--------------------------------------------------------------------
@@ -188,8 +189,7 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason},#state{worker = Worker} = Sta
 			true -> remove_waiter(Pid,State)
 		end,
 	{noreply,State1};
-handle_info(Info, State) ->
-	io:format("I got unhandle info ~p~n",[Info]),
+handle_info(_Info, State) ->
 	{noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -208,7 +208,6 @@ terminate(_Reason, #state{url = Url}) ->
 		Url == undefined -> ok;
 		true ->
 			Self = self(),
-			io:format("deregister_task ~p~n",[Url]),
 			npm_task_manager:deregister_task(Url,Self)
 	end,
 	ok.
@@ -318,12 +317,12 @@ do_cache(Url,Headers,Data)->
 			{hit,CacheKey,Headers}
 	end.
 notify_waiters(Result,#state{url = Url,waiters = W,worker = Worker, monitors = M})->
+	Self = self(),
+	npm_task_manager:deregister_task(Url,Self),
 	M1 = lists:foldl(fun({Caller,From},Acc)->
 			NewAcc = ai_process:demonitor_process(Caller,Acc),
 			gen_server:reply(From,Result),
 			NewAcc
 		end,M,W),
 	ai_process:demonitor_process(Worker,M1),
-	Self = self(),
-	npm_task_manager:deregister_task(Url,Self),
 	reset().

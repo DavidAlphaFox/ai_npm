@@ -22,7 +22,7 @@ start(_Type, _Args) ->
     application:ensure_started(cowboy),
 	application:ensure_started(gun),		
 	application:ensure_started(poolboy),
-    application:ensure_started(sasl),
+    %% application:ensure_started(sasl),
     application:ensure_started(ailib),
     application:ensure_started(urilib),
     application:ensure_started(jsx),

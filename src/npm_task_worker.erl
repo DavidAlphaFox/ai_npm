@@ -65,7 +65,7 @@ start_link(Args) ->
 	{stop, Reason :: term()} |
 	ignore.
 init(Args) ->
-%%	process_flag(trap_exit, true),
+	%%process_flag(trap_exit, true),
     {ok, #state{conn = undefined,stream = undefined,uplink = Args,task = undefined,
                 timer = ai_timer:new(), monitors = maps:new()}}.
 
@@ -85,8 +85,8 @@ init(Args) ->
 	{stop, Reason :: term(), Reply :: term(), NewState :: term()} |
     {stop, Reason :: term(), NewState :: term()}.
 handle_call({run,Caller,Ctx},_From,#state{task = undefined} = State)->
-     do_task(Caller,Ctx,State);
-
+    {Result,State1} = do_task(Caller,Ctx,State),
+    {reply,Result,State1};
 handle_call({run,_Caller,_Ctx},_From,#state{task = _Any} =  State)->
     {reply,{error,not_available},State};
 handle_call(_Request, _From, State) ->
@@ -133,8 +133,8 @@ handle_info({timeout,StreamRef},#state{conn = ConnPid, stream = StreamRef, recei
                 timer = Timer1,monitors = M2
             },
     if
-        Receiver == undefined -> {stop,broken,State1};
-        true ->  {noreply,State1}
+        Receiver == undefined ->  {noreply,State1};
+        true -> {stop,timeout,State1}
     end;
   
 handle_info({timeout,_StreamRef},State)->
@@ -171,9 +171,8 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason},#state{conn = ConnPid,receive
         true -> State     
     end,
     if
-        Receiver == undefined -> {stop,broken,State1};
-        true ->	{noreply,State1}
-            
+        Receiver == undefined -> {noreply,State1};
+        true ->	{stop,broken,State1}  
     end;
 
 handle_info({gun_down, ConnPid, _Protocol,
@@ -181,9 +180,8 @@ handle_info({gun_down, ConnPid, _Protocol,
             	#state{conn = ConnPid,receiver = Receiver} = State) ->
 	State1 = gun_down(State),
     if
-        Receiver == undefined -> {stop,broken,State1};
-        true ->	{noreply,State1}
-            
+        Receiver == undefined -> {noreply,State1};
+        true ->	 {stop,broken,State1} 
     end;
 handle_info(_Info, State) ->
 	{noreply, State}.
@@ -199,8 +197,7 @@ handle_info(_Info, State) ->
 %%--------------------------------------------------------------------
 -spec terminate(Reason :: normal | shutdown | {shutdown, term()} | term(),
 	State :: term()) -> any().
-terminate(_Reason, _State) ->
-	ok.
+terminate(_Reason, _State) -> ok.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -237,7 +234,7 @@ gun_down(#state{conn = ConnPid, receiver = undefined,monitors = M} =  State)->
     State#state{conn = undefined,stream = undefined,monitors = M1};
 gun_down(#state{conn = ConnPid,receiver = Receiver, timer = Timer, monitors = M} = State)->
     Timer1  = ai_timer:cancel(Timer),
-    M1 = ai_process:demonitor_process(ConnPid,M),
+    M1 = ai_process:demonitor_procestopss(ConnPid,M),
     M2 = ai_process:demonitor_process(Receiver,M1),
     State#state{conn = undefined,stream = undefined, receiver = undefined,task = undefined,timer = Timer1,monitors = M2}.
 receiver_down(#state{conn = ConnPid, receiver  = Receiver,timer = Timer, monitors = M} = State)->
@@ -254,8 +251,7 @@ receiver_down(#state{conn = ConnPid, receiver  = Receiver,timer = Timer, monitor
 open(#state{conn = undefined,uplink = Ctx,monitors = M} = State)->
     {ok,ConnPid} = npm_fetcher:open(Ctx),
     case gun:await_up(ConnPid) of 
-        {error,_Reason} -> 
-            {undefined,State};
+        {error,_Reason} -> {undefined,State};
         {ok,_Protocol} ->
             M1 = ai_process:monitor_process(ConnPid,M),
             {ConnPid,State#state{conn = ConnPid,monitors = M1}}
@@ -266,10 +262,10 @@ do_task(Caller,Ctx,State)->
     Headers = npm_fetcher:headers(Ctx),
     {ConnPid,State1} = open(State),
     case ConnPid of 
-        undefined -> {stop,not_available,State1};
+        undefined -> {{error,not_available},State1};
         _ ->
             StreamRef = gun:get(ConnPid,Url,Headers),
             Timer = State1#state.timer,
             Timer1 = ai_timer:start(?HTTP_TIMEOUT,{timeout,StreamRef},Timer),
-            {reply,ok,State1#state{timer = Timer1, stream = StreamRef, receiver = Caller,task = Ctx}}
+            {ok,State1#state{timer = Timer1, stream = StreamRef, receiver = Caller,task = Ctx}}
     end.

@@ -17,7 +17,7 @@ start() ->
     ok = application:start(cowboy),
 		ok = application:start(gun),		
 		ok = application:start(poolboy),
-    ok = application:start(sasl),
+    %% ok = application:start(sasl),
     ok = application:start(ailib),
     ok = application:start(urilib),
     ok = application:start(jsx),
