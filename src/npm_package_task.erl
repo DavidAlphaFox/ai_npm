@@ -61,7 +61,7 @@ run_task(Url,Ctx,not_found)->
 	case poolboy:transaction(?PACKAGE_TASK_POOL, RunningFun) of 
 		{Pid,{run_task,Pid}} -> npm_package_task:wait(Pid,Url,false);  
 		{_Worker,{run_task,Pid}}-> npm_package_task:wait(Pid,Url,true);
-		Any -> 
+		{_Worker,Any} -> 
 			npm_task_manager:release(),
 			Any
 	end;
@@ -130,6 +130,7 @@ init(_Args) ->
 	{stop, Reason :: term(), NewState :: term()}.
 handle_call({run,Url,Ctx},_From,#state{url = undefined} = State)->
 	{Result,State1} = do_task(Url,Ctx,State),
+	io:format("I got result ~p~n",[Result]),
 	{reply,Result,State1};
 handle_call({run,_Url,_Ctx},_From,#state{url = _Any} = State)->
 	{reply,{error,not_available},State};
@@ -265,7 +266,7 @@ do_it(Url,Ctx,#state{monitors = M} = State)->
 			ok -> 
 				M2 = ai_process:monitor_process(Worker,M),
 				{{run_task,Self},State#state{url = Url,worker = Worker,monitors = M2}};
-			not_available -> 
+			{error,not_available} -> 
 				npm_task_manager:deregister_task(Url,Self),
 				{{error,not_available},State}
 		end		

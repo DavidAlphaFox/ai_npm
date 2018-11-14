@@ -85,9 +85,9 @@ init(Args) ->
 	{noreply, NewState :: term(), hibernate} |
 	{stop, Reason :: term(), Reply :: term(), NewState :: term()} |
     {stop, Reason :: term(), NewState :: term()}.
-handle_call({run,Caller,Ctx},_From,#state{task = undefiend} = State)->
-    State1 = do_task(Caller,Ctx,State),
-    {reply,ok,State1};
+handle_call({run,Caller,Ctx},_From,#state{task = undefined} = State)->
+     do_task(Caller,Ctx,State);
+
 handle_call({run,_Caller,_Ctx},_From,#state{task = _Any} =  State)->
     {reply,{error,not_available},State};
 handle_call(_Request, _From, State) ->
@@ -123,19 +123,21 @@ handle_cast(_Request, State) ->
 handle_info({timeout,StreamRef},#state{conn = ConnPid, stream = StreamRef, receiver = Receiver, timer = Timer,monitors = M } = State)->
     Timer1 = ai_timer:cancel(Timer),
     M1 = ai_process:demonitor_process(ConnPid,M),
-    M3 =  case Receiver of 
-                undefiend -> M1;
-                _ ->  
-                    M2 = ai_process:demonitor_process(Receiver,M1),
-                    receiver ! {error,timeout},
-                    M2
+    M2 =  case Receiver of 
+                undefined -> M1;
+                _ ->  ai_process:demonitor_process(Receiver,M1)
             end,
     gun:close(ConnPid),
-    {noreply,State#state{
-        conn = undefiend,stream = undefiend,
-        receiver = undefiend,task = undefiend,
-        timer = Timer1,monitors = M3
-    }}; 
+    State1 = State#state{
+                conn = undefined,stream = undefined,
+                receiver = undefined,task = undefined,
+                timer = Timer1,monitors = M2
+            },
+    if
+        Receiver == undefined -> {stop,broken,State1};
+        true ->  {noreply,State1}
+    end;
+  
 handle_info({timeout,_StreamRef},State)->
     {noreply,State};
 handle_info({gun_response, ConnPid, StreamRef, fin, Status, Headers},
@@ -143,7 +145,7 @@ handle_info({gun_response, ConnPid, StreamRef, fin, Status, Headers},
     Timer1 = ai_timer:cancel(Timer),
     Receiver ! {response,fin,Status,Headers},
     M1 = ai_process:demonitor_process(Receiver,M),
-    {noreply,State#state{stream = undefiend,receiver = undefiend, task = undefiend, timer = Timer1,monitors = M1}};
+    {noreply,State#state{stream = undefined,receiver = undefined, task = undefined, timer = Timer1,monitors = M1}};
 
 handle_info({gun_response, ConnPid, StreamRef, nofin, Status, Headers},
 	#state{conn = ConnPid,stream = StreamRef,receiver  = Receiver,timer = Timer} = State) -> 
@@ -161,7 +163,7 @@ handle_info({gun_data, ConnPid, StreamRef, fin, Data},
     Timer1 = ai_timer:cancel(Timer),
     Receiver ! {data,fin,Data},
     M1 = ai_process:demonitor_process(Receiver,M),
-    {noreply,State#state{stream = undefiend, receiver = undefiend, task = undefiend, timer = Timer1,monitors = M1}};
+    {noreply,State#state{stream = undefined, receiver = undefined, task = undefined, timer = Timer1,monitors = M1}};
     
 handle_info({'DOWN', _MRef, process, Pid, _Reason},#state{conn = ConnPid,receiver = Receiver} = State )->
     State1 = if
@@ -169,12 +171,21 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason},#state{conn = ConnPid,receive
         Pid == Receiver ->  receiver_down(State);
         true -> State     
     end,
-	{noreply,State1};
+    if
+        Receiver == undefined -> {stop,broken,State1};
+        true ->	{noreply,State1}
+            
+    end;
+
 handle_info({gun_down, ConnPid, _Protocol,
              _Reason, _Killed, _Unprocessed},
-            	#state{conn = ConnPid} = State) ->
+            	#state{conn = ConnPid,receiver = Receiver} = State) ->
 	State1 = gun_down(State),
-	{noreply,State1};
+    if
+        Receiver == undefined -> {stop,broken,State1};
+        true ->	{noreply,State1}
+            
+    end;
 handle_info(_Info, State) ->
 	{noreply, State}.
 
@@ -229,7 +240,6 @@ gun_down(#state{conn = ConnPid,receiver = Receiver, timer = Timer, monitors = M}
     Timer1  = ai_timer:cancel(Timer),
     M1 = ai_process:demonitor_process(ConnPid,M),
     M2 = ai_process:demonitor_process(Receiver,M1),
-    Receiver ! {error,broken},
     State#state{conn = undefined,stream = undefined, receiver = undefined,task = undefined,timer = Timer1,monitors = M2}.
 receiver_down(#state{conn = ConnPid, receiver  = Receiver,timer = Timer, monitors = M} = State)->
     Timer1 = ai_timer:cancel(Timer),
@@ -237,15 +247,15 @@ receiver_down(#state{conn = ConnPid, receiver  = Receiver,timer = Timer, monitor
     M2 = ai_process:demonitor_process(Receiver,M1),
     gun:close(ConnPid),
     State#state{
-        conn = undefiend,stream = undefiend,
-        receiver = undefiend,task = undefiend,
+        conn = undefiend,stream = undefined,
+        receiver = undefiend,task = undefined,
         timer = Timer1,monitors = M2
     }.
 
-open(#state{conn = undefiend,uplink = Ctx,monitors = M} = State)->
+open(#state{conn = undefined,uplink = Ctx,monitors = M} = State)->
     {ok,ConnPid} = npm_fetcher:open(Ctx),
     case gun:await_up(ConnPid) of 
-        {error,_Reason} -> {undefiend,State};
+        {error,_Reason} -> {undefined,State};
         {ok,_Protocol} ->
             M1 = ai_process:monitor_process(ConnPid,M),
             {ConnPid,State#state{conn = ConnPid,monitors = M1}}
@@ -256,12 +266,11 @@ do_task(Caller,Ctx,State)->
     Headers = npm_fetcher:headers(Ctx),
     {ConnPid,State1} = open(State),
     case ConnPid of 
-        undefiend -> 
-            Caller ! {error,broken},
-            State1;
+        undefined -> 
+            {stop,not_available,State1};
         _ ->
             StreamRef = gun:get(ConnPid,Url,Headers),
             Timer = State1#state.timer,
             Timer1 = ai_timer:start(?HTTP_TIMEOUT,{timeout,StreamRef},Timer),
-            State#state{timer = Timer1,receiver = Caller,task = Ctx}
+            {reply,ok,State1#state{timer = Timer1,receiver = Caller,task = Ctx}}
     end.

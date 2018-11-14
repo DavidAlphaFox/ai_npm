@@ -11,7 +11,7 @@ start(M,S)
             Name = name(I),
             {ok,_Mutex} = ai_mutex:new(Name)
         end,lists:seq(0,M-1)),
-    {ok,_Semphore} = ai_semaphore:new("task",S),
+    {ok,_Semphore} = ai_semaphore:new("npm_task",S),
     npm_task_table = ets:new(npm_task_table,[set,public,named_table,{write_concurrency,true},{read_concurrency,true}]),
     ai_strings:dynamic_module("npm_task_counter.erl",counter_module(M));
 start(_M,_N) -> {error,badarg}.
