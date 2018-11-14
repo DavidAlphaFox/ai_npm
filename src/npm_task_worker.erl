@@ -6,7 +6,7 @@
 %%% @end
 %%% Created : 15 Oct 2018 by David Gao <david@laptop-02.local>
 %%%-------------------------------------------------------------------
--module(npm_package_task_worker).
+-module(npm_task_worker).
 
 -behaviour(gen_server).
 -behaviour(poolboy_worker).

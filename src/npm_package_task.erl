@@ -25,6 +25,9 @@
 
 -record(state, {
 	url,
+	status,
+	headers,
+	buffer,
 	waiters,
 	worker,
 	monitors
@@ -33,12 +36,15 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-run(Url,Ctx)->
-    npm_cache:run_cache(Url,{fun run_cache/3,[Url,Ctx]}).
-run_cache(Url,_Ctx,{hit,CacheKey,Headers})-> 
-	npm_task_manager:done(Url),
-	{hit,CacheKey,Headers};
-run_cache(Url,Ctx,_)->
+run(Url,Headers)-> npm_cache:run_cache(Url,{fun run_cache/3,[Url,Headers]}).
+
+run_cache(_Url,_Headers,{hit,CacheKey,Headers})-> {hit,CacheKey,Headers};
+run_cache(Url,Headers,{expired,Etag,Modified})->
+	NewHeaders = npm_req:req_headers(Etag,Modified,Headers),
+	run_task(Url,[{headers,NewHeaders}]);
+run_cache(Url,Headers,not_found)->
+	run_task(Url,[{headers,Headers}]).
+run_task(Url,Ctx)->
 	%% Cache 没有找到，需要到Task队列中找一下
 	%% 会自动加锁解锁，函数在锁范围之外运行
 	npm_task_manager:find_task(Url,{fun run_task/3,[Url,Ctx]}).
@@ -105,7 +111,7 @@ start_link(Args) ->
 	{stop, Reason :: term()} |
 	ignore.
 init(_Args) ->
-	{ok, #state{}}.
+	{ok,reset()}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -161,6 +167,25 @@ handle_cast(_Request, State) ->
 	{noreply, NewState :: term(), Timeout :: timeout()} |
 	{noreply, NewState :: term(), hibernate} |
 	{stop, Reason :: normal | term(), NewState :: term()}.
+handle_info({response,fin,Status,Headers},#state{url = Url} = State)->
+	Result = cache(Url,Status,Headers),
+	State1 = notify_waiters(Result,State),
+	{noreply,State1};
+handle_info({response,nofin,Status,Headers},State)->
+	{noreply,State#state{status = Status,headers = Headers}};
+handle_info({data,nofin,Data},#state{buffer = Buffer} = State)->
+	{noreply,State#state{buffer = <<Buffer/binary,Data/binary>>}};
+handle_info({data,fin,Data},#state{url = Url,status = Status,headers = Headers,buffer = Buffer} = State)->
+	Result = cache(Url,Status,Headers,<<Buffer/binary,Data/binary>>),
+	State1 = notify_waiters(Result,State),
+	{noreply,State1};
+handle_info({'DOWN', _MRef, process, Pid, _Reason},#state{worker = Worker} = State )->
+	State1 = 
+		if
+			Worker == Pid -> notify_waiters({error,connection_broken},State);
+			true -> remove_waiter(Pid,State)
+		end,
+	{noreply,State1};
 handle_info(_Info, State) ->
 	{noreply, State}.
 
@@ -207,9 +232,24 @@ format_status(_Opt, Status) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+reset()->
+	#state{
+		url = undefined,
+		status = undefined,
+		headers = undefined,
+		buffer = <<>>,
+		waiters = [],
+		worker = undefined,
+		monitors = maps:new()
+	}.
+
 add_waiter(Caller,From,#state{waiters = W,monitors = M } = State)->
 	M1 = ai_process:monitor_process(Caller,M),
 	State#state{monitors = M1,waiters = [{Caller,From}|W]}.
+remove_waiter(Pid,#state{waiters = W, monitors = M} = State)->
+	W1 = lists:filter(fun({Caller,_Frrom}) -> Pid /= Caller end,W),
+	M1 = ai_process:demonitor_process(Pid,M),
+	State#state{waiters = W1,monitors = M1}.
 
 do_task(Url,Ctx,State)->
 	NewCtx = [{url,Url} | Ctx],
@@ -231,3 +271,47 @@ do_it(Url,Ctx,#state{monitors = M} = State)->
 		end		
 	end,
 	poolboy:transaction(?NPM_TASK_POOL, RunningFun).
+
+
+cache(Url,Status,Headers)->
+	if 
+		Status == 304 ->
+			ai_http_cache:cache(Url,Headers),
+			case ai_http_cache:validate_hit(Url) of 
+				not_found -> {no_data,Status,Headers};
+				Result -> Result
+			end;
+		true -> {no_data,Status,Headers}
+	end.
+cache(Url,Status,Headers,Data)->
+	if  
+		Status  == 200 -> 
+			Encoder = proplists:get_value(<<"content-encoding">>,Headers),
+			Data1 = npm_req:decode_http(Encoder, Data),
+			do_cache(Url,Headers,Data1);
+		true ->  {data,Status,Headers,Data}
+	end.
+do_cache(Url,Headers,Data)->
+	Meta = jsx:decode(Data),
+	CacheKey =
+		case proplists:get_value(<<"name">>,Meta) of
+			undefined -> undefined;
+			Name ->
+				ScopeName = npm_package:scope_name(Name),
+				{atomic,ok} = npm_package_mnesia:add(ScopeName,Data),
+				ScopeName
+		end,
+	case CacheKey of 
+		undefined -> {data,Headers,Data};
+		_ ->
+			ai_http_cache:cache(Url,CacheKey,Headers),
+			{hit,CacheKey,Headers}
+	end.
+notify_waiters(Result,#state{waiters = W,worker = Worker, monitors = M})->
+	M1 = lists:foldl(fun({Caller,From},Acc)->
+			NewAcc = ai_process:demonitor_process(Caller,Acc),
+			gen_server:reply(From,Result),
+			NewAcc
+		end,M,W),
+	ai_process:demonitor_process(Worker,M1),
+	reset().

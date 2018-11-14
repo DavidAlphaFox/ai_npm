@@ -11,15 +11,16 @@ init([]) ->
     SupFlags = #{strategy => one_for_one,
                  intensity => 1,
                  period => 5},
+    npm_task_manager:start(40,10),
     PoolSpecs = worker_pool_specs(),
     {ok, {SupFlags, PoolSpecs}}.
 
 default_woker_pool()->
       [
-       {npm_package_running_pool,
-        [{size,10},{worker_module,npm_package_task_worker},{strategy,fifo}],[]},
-       {npm_tarball_running_pool,
-        [{size,20},{worker_module,npm_tarball_task_worker},{strategy,fifo}],[]}
+       {package_task_pool,
+        [{size,5},{worker_module,npm_package_task},{strategy,fifo}],[]},
+       {npm_task_pool,
+        [{size,10},{worker_module,npm_task_worker},{strategy,fifo}],[]}
       ].
 worker_pool_specs()->
     lists:map(fun({Name, Args, WorkerArgs}) ->

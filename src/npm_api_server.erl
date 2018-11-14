@@ -7,8 +7,8 @@ start(Port) ->
     Router =  {'_', [
 %%                     {"/-/v1/login",ai_npm_user_handler,[]},
                     %% {"/-/user/:user",npm_api_user,[]},
-                    {"/[:scope]/:package/download/[:scope_ext]/:tarball",npm_tarball_api,[yarn]},
-                    {"/[:scope]/:package/-/:tarball", npm_tarball_api,[npm]},
+                    %% {"/[:scope]/:package/download/[:scope_ext]/:tarball",npm_tarball_api,[yarn]},
+                    %% {"/[:scope]/:package/-/:tarball", npm_tarball_api,[npm]},
                     {"/:scope/[:package/[:version]]",npm_package_api,[npm]},
                     {'_',npm_unknown_api,[]}
                     ]},
