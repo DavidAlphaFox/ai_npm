@@ -19,6 +19,8 @@ start() ->
 		ok = application:start(poolboy),
     %% ok = application:start(sasl),
     ok = application:start(ailib),
+    ok = application:start(aihttp),
+    ok = application:start(aifile),
     ok = application:start(urilib),
     ok = application:start(jsx),
 		ok = application:start(ai_npm).
