@@ -24,6 +24,8 @@ start(_Type, _Args) ->
 	application:ensure_started(poolboy),
     %% application:ensure_started(sasl),
     application:ensure_started(ailib),
+    application:ensure_started(aifile),
+    application:ensure_started(aihttp),
     application:ensure_started(urilib),
     application:ensure_started(jsx),
     Result = ai_npm_sup:start_link(),
