@@ -295,8 +295,12 @@ cache(Url,Status,Headers)->
 cache(Url,Status,Headers,Data)->
 	if  
 		Status  == 200 -> 
-			Encoder = proplists:get_value(<<"content-encoding">>,Headers),
-			Data1 = ai_http:decode_body(Encoder, Data),
+			Encoder = ai_http:content_encoding(Headers),
+			Data1 = 
+				case ai_http:decode_body(Encoder, Data) of 
+					{ok,Decoded} -> Decoded;
+					_ -> Data
+				end,
 			do_cache(Url,Headers,Data1);
 		true ->  {data,Status,Headers,Data}
 	end.
