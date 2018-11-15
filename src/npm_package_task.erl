@@ -306,7 +306,7 @@ do_cache(Url,Headers,Data)->
 		case proplists:get_value(<<"name">>,Meta) of
 			undefined -> undefined;
 			Name ->
-				ScopeName = npm_package:scope_name(Name),
+				ScopeName = npm_package_common:scope_name(Name),
 				{atomic,ok} = npm_package_mnesia:add(ScopeName,Data),
 				ScopeName
 		end,
