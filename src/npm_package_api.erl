@@ -28,23 +28,23 @@ store_tarball(Scope,Name,Version,Filename,Data)->
 save_tarball({Scope,Name},[{Filename,Other}])->
 	Data = proplists:get_value(?DATA,Other),
 	Decode = base64:decode(Data),
-    Version = npm_package:version(Name,Filename),
+    Version = npm_package_common:version(Name,Filename),
     store_tarball(Scope,Name,Version,Filename,Decode).
 
 merge_package(ScopeName,Json)->
-    case ai_mnesia_operation:one_or_none(npm_package_mnesia:find(ScopeName)) of 
-        not_found -> npm_package_mnesia:add(ScopeName,jsx:encode(Json),true);
+    case ai_mnesia_operation:one_or_none(npm_package_mnesia:find_private(ScopeName)) of 
+        not_found -> npm_package_mnesia:add_private(ScopeName,jsx:encode(Json));
         Item -> 
-            Old = Item#package.meta,
-            MergedJson = npm_package:merge(jsx:decode(Old),Json),
-            npm_package_mnesia:add(ScopeName,jsx:encode(MergedJson),true)
+            Old = Item#private_package.meta,
+            MergedJson = npm_package_common:merge(jsx:decode(Old),Json),
+            npm_package_mnesia:add_private(ScopeName,jsx:encode(MergedJson))
     end.
 
 req(?PUT,Req,State)->
 	{ok, Data, Req0} = cowboy_req:read_body(Req),
 	Json = jsx:decode(Data),
-	Tarball = npm_package:attachments(Json),
-    ScopeName = npm_package:scope_name(npm_package:name(Json)),
+	Tarball = npm_package_common:attachments(Json),
+    ScopeName = npm_package_common:scope_name(npm_package_common:name(Json)),
     {atomic,ok} = save_tarball(ScopeName,Tarball),
     Req1 = 
         case merge_package(ScopeName,proplists:delete(?ATTACHMENTS,Json)) of 
@@ -76,7 +76,7 @@ name_version(Req)->
     Name = cowboy_req:binding(package,Req,undefined),
     Version = cowboy_req:binding(version,Req,undefined),
     case {binary:first(Scope),Name} of
-        {$@,undefined} -> {npm_package:scope_name(Scope),undefined};
+        {$@,undefined} -> {npm_package_common:scope_name(Scope),undefined};
         {$@,_}-> {{Scope,Name},Version};
         {_N,_V} -> {{undefined,Scope},Name}
     end.
@@ -116,7 +116,7 @@ fetch_with_cache(Req)->
  %%   [{?DIST,NewDist}] ++ proplists:delete(?DIST,Package).
 reply_version(undefined,Meta,ResHeaders,{_Scheme,_Host,_Port})->
     %%Meta = jsx:decode(Record#package.meta),
-    %%Versions = npm_package:versions(Meta),
+    %%Versions = npm_package_common:versions(Meta),
     %%NewVersions = lists:foldl(fun({V,P},Acc)->
     %%                                NewP = replace_with_host(Scheme,Host,Port,P),
     %%                                [{V,NewP}| Acc]
@@ -129,7 +129,7 @@ reply_version(undefined,Meta,ResHeaders,{_Scheme,_Host,_Port})->
     {data,ResHeaders,Meta};
 reply_version(Version,Meta,ResHeaders,{_Scheme,_Host,_Port})->
     Json = jsx:decode(Meta),
-    case npm_package:version_info(Version,Json) of 
+    case npm_package_common:version_info(Version,Json) of 
         undefined -> not_found;
         VersionInfo -> 
             %% NewMeta = replace_with_host(Scheme,Host,Port,VersionInfo),

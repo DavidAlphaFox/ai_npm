@@ -1,4 +1,4 @@
--module(npm_package).
+-module(npm_package_common).
 -include("npm_package.hrl").
 
 -export([name/1,versions/1,dist_tags/1,attachments/1,scope_name/1]).
