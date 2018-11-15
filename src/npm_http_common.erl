@@ -1,11 +1,11 @@
 -module(npm_http_common).
 -export([req_headers/3,res_headers/1,server_name/1]).
-
-req_headers(undefined,undefined,Headers) -> Headers;
-req_headers(Etag,undefined,Headers) ->  [{<<"if-none-match">>,Etag}] ++ Headers;
-req_headers(undefined,Modified,Headers) -> [{<<"if-modified-since">>,Modified}] ++ Headers;
 req_headers(Etag,Modified,Headers)->
-    [{<<"if-none-match">>,Etag} , {<<"if-modified-since">>,Modified}] ++ Headers.
+    List = [
+        {ai_http,add_if_none_match,[Etag]},
+        {ai_http,add_if_modified_since,[Modified]}
+    ],
+    ai_lists:run_pipe(List,[Headers]).
 
 res_headers(Headers)-> 
     Exclued = [<<"set-cookie">>,<<"etag">>,<<"last-modified">>,

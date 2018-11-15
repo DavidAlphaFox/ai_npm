@@ -288,6 +288,7 @@ cache(Url,Status,Headers)->
 			ai_http_cache:cache(Url,Headers),
 			case ai_http_cache:validate_hit(Url) of 
 				not_found -> {no_data,Status,Headers};
+				{expired,_Etag,_Modified} -> {no_data,Status,Headers};
 				Result -> Result
 			end;
 		true -> {no_data,Status,Headers}
