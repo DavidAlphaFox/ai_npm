@@ -121,7 +121,7 @@ reply_version(undefined,Meta,ResHeaders,{_Scheme,_Host,_Port})->
     %%                                [{V,NewP}| Acc]
     %%                            end,[],Versions),
     %%NewMeta = [{?VERSIONS,NewVersions}] ++ proplists:delete(?VERSIONS,Meta),
-    Data = ai_http:encode_body(gzip,jsx:encode(Meta)),
+    {ok,Data} = ai_http:encode_body(gzip,jsx:encode(Meta)),
     Size = erlang:byte_size(Data),
     NewHeaders = npm_http_common:with_gizp(Size,ResHeaders),
     {data,NewHeaders,Data};
@@ -131,7 +131,7 @@ reply_version(Version,Meta,ResHeaders,{_Scheme,_Host,_Port})->
         undefined -> not_found;
         VersionInfo -> 
             %% NewMeta = replace_with_host(Scheme,Host,Port,VersionInfo),
-            Data = ai_http:encode_body(gzip,jsx:encode(VersionInfo)),
+            {ok,Data} = ai_http:encode_body(gzip,jsx:encode(VersionInfo)),
             Size = erlang:byte_size(Data),
             NewHeaders = npm_http_common:with_gizp(Size,ResHeaders),
             {data,NewHeaders,Data}
