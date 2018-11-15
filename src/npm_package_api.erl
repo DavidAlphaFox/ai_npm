@@ -18,7 +18,7 @@ store_tarball(Scope,Name,Version,Filename,Data)->
         {ok,Fd} -> 
             ai_blob_file:write(Fd,Data),
             {ok,_NewFd,Digest} = ai_blob_file:close(Fd),
-            DigestString = ai_strings:hash_to_string(Digest,160,lower),
+            DigestString = ai_string:hash_to_string(Digest,160,lower),
             case npm_tarball_storage:store(TmpFile,DigestString,Scope,Filename) of 
                 {ok,FinalFile} -> npm_tarball_mnesia:add({Scope,Name},Version,FinalFile,true);
                 Error -> Error

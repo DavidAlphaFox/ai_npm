@@ -15,7 +15,7 @@ start(M,S)
         end,lists:seq(0,M-1)),
     {ok,_Semphore} = ai_semaphore:new("npm_task",S),
     ?TASK_TABLE = ets:new(?TASK_TABLE,[set,public,named_table,{write_concurrency,true},{read_concurrency,true}]),
-    ai_strings:dynamic_module("npm_task_counter.erl",counter_module(M));
+    ai_string:dynamic_module("npm_task_counter.erl",counter_module(M));
 start(_M,_N) -> {error,badarg}.
 
 count()-> npm_task_counter:count().

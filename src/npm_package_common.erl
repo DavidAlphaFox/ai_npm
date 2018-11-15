@@ -22,11 +22,11 @@ version_info(Version,Json) ->
     end.
 -spec version(Package :: binary(),Tarball :: binary()) -> binary().
 version(Package,Tarball)->
-    Tail = ai_strings:prefix(Tarball,<<Package/binary,"-">>),
-    Suffix = ai_strings:find(Tail,".",trailing),
+    Tail = ai_string:prefix(Tarball,<<Package/binary,"-">>),
+    Suffix = ai_string:find(Tail,".",trailing),
     SLen = erlang:byte_size(Suffix),
     TLen = erlang:byte_size(Tail),
-    ai_strings:slice(Tail,0,TLen - SLen).
+    ai_string:slice(Tail,0,TLen - SLen).
 -spec scope_name(Name :: binary()) -> binary() | undefined.
 scope_name(Name) -> 
     case binary:split(Name,<<"/">>) of 
