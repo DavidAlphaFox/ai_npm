@@ -60,11 +60,11 @@ req(?PUT,Req,State)->
 req(?GET,Req,State)->
     Req2 = case fetch_with_private(Req) of
                {data,ResHeaders,Data} ->
-                   cowboy_req:reply(200,npm_req:res_headers(ResHeaders),Data,Req);
+                   cowboy_req:reply(200,npm_http_common:res_headers(ResHeaders),Data,Req);
                {data,Status,ResHeaders,Data}->
-                   cowboy_req:reply(Status,npm_req:res_headers(ResHeaders),Data,Req);
+                   cowboy_req:reply(Status,npm_http_common:res_headers(ResHeaders),Data,Req);
                {no_data,Status,ResHeaders}->
-                   cowboy_req:reply(Status,npm_req:res_headers(ResHeaders),Req);
+                   cowboy_req:reply(Status,npm_http_common:res_headers(ResHeaders),Req);
                _ ->
                    Body = <<"Internal Server Error">>,
                    cowboy_req:reply(500, maps:from_list(?RESPONSE_HEADERS), Body, Req)
@@ -83,14 +83,15 @@ name_version(Req)->
 
 fetch_with_private(Req)->
     {ScopeName,Version} = name_version(Req),
-    case ai_mnesia_operation:one_or_none(npm_package_mnesia:find(ScopeName,true)) of 
+    case ai_mnesia_operation:one_or_none(npm_package_mnesia:find_private(ScopeName)) of 
          not_found -> fetch_with_cache(Req);
-         Record -> reply_version(Version,Record,?PACKAGE_HEADERS,npm_req:server_name(Req))
+         Record -> reply_version(Version,Record#private_package.meta,
+            ?PACKAGE_HEADERS,npm_http_common:server_name(Req))
     end.
   
 fetch_with_cache(Req)->
     {_ScopeName,Version} = name_version(Req),
-    ServerName = npm_req:server_name(Req),
+    ServerName = npm_http_common:server_name(Req),
     Url = cowboy_req:path(Req),
     Headers = cowboy_req:headers(Req),
     case npm_package_task:run(Url,maps:to_list(Headers)) of
@@ -113,7 +114,7 @@ fetch_with_cache(Req)->
  %%                               {undefined,erlang:binary_to_list(Host),Port},P,Q,F}),
  %%   NewDist = [{?TARBALL,erlang:list_to_binary(NewTarball)}] ++ proplists:delete(?TARBALL,Dist), 
  %%   [{?DIST,NewDist}] ++ proplists:delete(?DIST,Package).
-reply_version(undefined,Record,ResHeaders,{_Scheme,_Host,_Port})->
+reply_version(undefined,Meta,ResHeaders,{_Scheme,_Host,_Port})->
     %%Meta = jsx:decode(Record#package.meta),
     %%Versions = npm_package:versions(Meta),
     %%NewVersions = lists:foldl(fun({V,P},Acc)->
@@ -121,18 +122,18 @@ reply_version(undefined,Record,ResHeaders,{_Scheme,_Host,_Port})->
     %%                                [{V,NewP}| Acc]
     %%                            end,[],Versions),
     %%NewMeta = [{?VERSIONS,NewVersions}] ++ proplists:delete(?VERSIONS,Meta),
-    %%Data = npm_req:encode_http(gzip,jsx:encode(NewMeta)),
+    %%Data = ai_http:encode_body(gzip,jsx:encode(NewMeta)),
     %%Size = erlang:byte_size(Data),
     %%NewHeaders = ResHeaders ++ 
     %%    [{<<"content-length">>,erlang:integer_to_binary(Size)},{<<"content-encoding">>,<<"gzip">>}],
-    {data,ResHeaders,Record#package.meta};
-reply_version(Version,Record,ResHeaders,{_Scheme,_Host,_Port})->
-    Meta = jsx:decode(Record#package.meta),
-    case npm_package:version_info(Version,Meta) of 
+    {data,ResHeaders,Meta};
+reply_version(Version,Meta,ResHeaders,{_Scheme,_Host,_Port})->
+    Json = jsx:decode(Meta),
+    case npm_package:version_info(Version,Json) of 
         undefined -> not_found;
         VersionInfo -> 
             %% NewMeta = replace_with_host(Scheme,Host,Port,VersionInfo),
-            %% Data = npm_req:encode_http(gzip,jsx:encode(NewMeta)),
+            %% Data = ai_http:encode_body(gzip,jsx:encode(NewMeta)),
             %% Size = erlang:byte_size(Data),
             %% NewHeaders = ResHeaders ++ 
             %%    [{<<"content-length">>,erlang:integer_to_binary(Size)},{<<"content-encoding">>,<<"gzip">>}],
@@ -145,5 +146,5 @@ reply(Url,ResHeaders,Http,Name,Version)->
             ai_http_cache:uncache(Url),
             not_found;
         Record ->
-            reply_version(Version,Record,ResHeaders,Http)
+            reply_version(Version,Record#package.meta,ResHeaders,Http)
     end.

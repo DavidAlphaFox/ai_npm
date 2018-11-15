@@ -6,8 +6,10 @@
 -define(DIST,<<"dist">>).
 -define(TARBALL,<<"tarball">>).
 -record(package,{
-                name :: tuple(),
-                meta :: binary(),	%% the json content of the package
-                digest :: binary(),
-                private :: boolean()
-                }).
+    name :: tuple(),
+    meta :: binary()
+    }).
+-record(private_package,{
+    name :: tuple(),
+    meta :: binary()
+}).

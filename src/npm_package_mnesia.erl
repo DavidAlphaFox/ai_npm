@@ -1,8 +1,8 @@
 -module(npm_package_mnesia).
 -include("npm_package.hrl").
 
--export([find/1,find/2]).
--export([add/2,add/3]).
+-export([find/1,find_private/1]).
+-export([add/2,add_private/2]).
 
 
 -spec find(Name :: tuple()) -> {atomic,term()} | {aborted,term()}. 
@@ -14,22 +14,23 @@ find(Name)->
 		mnesia:select(package, [{MatchHead, Guard, Result}])
 	end,
 	mnesia:transaction(F).
--spec find(Name :: tuple(),Type::boolean()) -> {atomic,term()} | {aborted,term()}. 
-find(Name,Type) ->
+-spec find_private(Name :: tuple()) -> {atomic,term()} | {aborted,term()}. 
+find_private(Name) ->
 	F = fun()->
-			MatchHead = #package{name = '$1',private = '$2',_ = '_'},
-			Guard = [{'==', '$1', {Name}},{'==','$2',Type}],
+			MatchHead = #package{name = '$1',_ = '_'},
+			Guard = [{'==', '$1', {Name}}],
 			Result = ['$_'],
-			mnesia:select(package, [{MatchHead, Guard, Result}])
+			mnesia:select(private_package, [{MatchHead, Guard, Result}])
 		end,
 	mnesia:transaction(F).
 -spec add(Name :: tuple(),Meta :: binary()) -> {atomic,ok} | {aborted,term()}.
 add(Name,Meta)->
-    add(Name,Meta,false).
+	Package = #package{name = Name,meta = Meta},
+	F = fun() -> mnesia:write(Package) end,
+	mnesia:transaction(F).
 
--spec add(Name :: tuple(),Meta :: binary(),Type :: boolean()) -> {atomic,ok} | {aborted,term()}.
-add(Name,Meta,Type)->
-	Digest = ai_strings:sha256_string(Meta,lower),
-	Package = #package{name = Name,meta = Meta,digest = Digest,private = Type},
+-spec add_private(Name :: tuple(),Meta :: binary()) -> {atomic,ok} | {aborted,term()}.
+add_private(Name,Meta)->
+	Package = #private_package{name = Name,meta = Meta},
 	F = fun() -> mnesia:write(Package) end,
 	mnesia:transaction(F).

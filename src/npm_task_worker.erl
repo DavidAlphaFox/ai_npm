@@ -23,7 +23,7 @@
 -record(state, {
                 conn,
                 stream,
-                uplink,
+                upstream,
                 timer,
                 task,
                 receiver,
@@ -66,7 +66,7 @@ start_link(Args) ->
 	ignore.
 init(Args) ->
 	%%process_flag(trap_exit, true),
-    {ok, #state{conn = undefined,stream = undefined,uplink = Args,task = undefined,
+    {ok, #state{conn = undefined,stream = undefined,upstream = Args,task = undefined,
                 timer = ai_timer:new(), monitors = maps:new()}}.
 
 %%--------------------------------------------------------------------
@@ -248,8 +248,8 @@ receiver_down(#state{conn = ConnPid, receiver  = Receiver,timer = Timer, monitor
         timer = Timer1,monitors = M2
     }.
 
-open(#state{conn = undefined,uplink = Ctx,monitors = M} = State)->
-    {ok,ConnPid} = npm_fetcher:open(Ctx),
+open(#state{conn = undefined,upstream = Ctx,monitors = M} = State)->
+    {ok,ConnPid} = connect(Ctx),
     case gun:await_up(ConnPid) of 
         {error,_Reason} -> {undefined,State};
         {ok,_Protocol} ->
@@ -257,9 +257,9 @@ open(#state{conn = undefined,uplink = Ctx,monitors = M} = State)->
             {ConnPid,State#state{conn = ConnPid,monitors = M1}}
     end;
 open(#state{conn = ConnPid} = State)-> {ConnPid,State}.
-do_task(Caller,Ctx,State)->
+do_task(Caller,Ctx,#state{upstream = UpStream} = State)->
     Url = proplists:get_value(url, Ctx),
-    Headers = npm_fetcher:headers(Ctx),
+    Headers = headers(Ctx,UpStream),
     {ConnPid,State1} = open(State),
     case ConnPid of 
         undefined -> {{error,not_available},State1};
@@ -269,3 +269,28 @@ do_task(Caller,Ctx,State)->
             Timer1 = ai_timer:start(?HTTP_TIMEOUT,{timeout,StreamRef},Timer),
             {ok,State1#state{timer = Timer1, stream = StreamRef, receiver = Caller,task = Ctx}}
     end.
+
+
+
+connect(Ctx)->
+    Host = proplists:get_value(host,Ctx,"registry.npmjs.org"),
+    Protocol =proplists:get_value(protocol,Ctx,"https"),
+    Port =  proplists:get_value(port,Ctx,443),
+    gun:open(Host, Port,tls(Protocol)).
+
+tls("https")->#{transport => tls};
+tls(_) ->#{}.    
+
+headers(Ctx,UpStream)->
+    Headers = proplists:get_value(headers, Ctx,[]),
+    NewHeaders = lists:filter(fun({Key,_Value}) -> Key /= <<"host">> end,Headers),
+    Host = proplists:get_value(host,UpStream,"registry.npmjs.org"),
+    Port =  proplists:get_value(port,UpStream,443),
+    HostHeader = 
+        if 
+            (Port == 80) or (Port == 443) ->
+                {<<"host">>,erlang:list_to_binary(Host)};
+            true ->
+                {<<"host">>,erlang:list_to_binary([Host,":",erlang:integer_to_list(Port)])}
+        end,
+    [HostHeader|NewHeaders].
