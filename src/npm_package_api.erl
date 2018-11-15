@@ -115,30 +115,26 @@ fetch_with_cache(Req)->
  %%   NewDist = [{?TARBALL,erlang:list_to_binary(NewTarball)}] ++ proplists:delete(?TARBALL,Dist), 
  %%   [{?DIST,NewDist}] ++ proplists:delete(?DIST,Package).
 reply_version(undefined,Meta,ResHeaders,{_Scheme,_Host,_Port})->
-    %%Meta = jsx:decode(Record#package.meta),
     %%Versions = npm_package_common:versions(Meta),
     %%NewVersions = lists:foldl(fun({V,P},Acc)->
     %%                                NewP = replace_with_host(Scheme,Host,Port,P),
     %%                                [{V,NewP}| Acc]
     %%                            end,[],Versions),
     %%NewMeta = [{?VERSIONS,NewVersions}] ++ proplists:delete(?VERSIONS,Meta),
-    %%Data = ai_http:encode_body(gzip,jsx:encode(NewMeta)),
-    %%Size = erlang:byte_size(Data),
-    %%NewHeaders = ResHeaders ++ 
-    %%    [{<<"content-length">>,erlang:integer_to_binary(Size)},{<<"content-encoding">>,<<"gzip">>}],
-    {data,ResHeaders,Meta};
+    Data = ai_http:encode_body(gzip,jsx:encode(Meta)),
+    Size = erlang:byte_size(Data),
+    NewHeaders = npm_http_common:with_gizp(Size,ResHeaders),
+    {data,NewHeaders,Data};
 reply_version(Version,Meta,ResHeaders,{_Scheme,_Host,_Port})->
     Json = jsx:decode(Meta),
     case npm_package_common:version_info(Version,Json) of 
         undefined -> not_found;
         VersionInfo -> 
             %% NewMeta = replace_with_host(Scheme,Host,Port,VersionInfo),
-            %% Data = ai_http:encode_body(gzip,jsx:encode(NewMeta)),
-            %% Size = erlang:byte_size(Data),
-            %% NewHeaders = ResHeaders ++ 
-            %%    [{<<"content-length">>,erlang:integer_to_binary(Size)},{<<"content-encoding">>,<<"gzip">>}],
-            %%{data,NewHeaders,Data}
-            {data,ResHeaders,jsx:encode(VersionInfo)}
+            Data = ai_http:encode_body(gzip,jsx:encode(VersionInfo)),
+            Size = erlang:byte_size(Data),
+            NewHeaders = npm_http_common:with_gizp(Size,ResHeaders),
+            {data,NewHeaders,Data}
     end.
 reply(Url,ResHeaders,Http,Name,Version)->
     case ai_mnesia_operation:one_or_none(npm_package_mnesia:find(Name)) of 

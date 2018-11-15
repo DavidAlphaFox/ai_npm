@@ -40,7 +40,7 @@ run(Url,Headers)-> npm_cache:run_cache(Url,{fun run_cache/3,[Url,Headers]}).
 
 run_cache(_Url,_Headers,{hit,CacheKey,Headers})-> {hit,CacheKey,Headers};
 run_cache(Url,Headers,{expired,Etag,Modified})->
-	NewHeaders = npm_http_common:req_headers(Etag,Modified,Headers),
+	NewHeaders = npm_http_common:with_etag(Etag,Modified,Headers),
 	run_task(Url,[{headers,NewHeaders}]);
 run_cache(Url,Headers,not_found)->
 	run_task(Url,[{headers,Headers}]).

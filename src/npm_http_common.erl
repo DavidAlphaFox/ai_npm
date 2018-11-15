@@ -1,12 +1,18 @@
 -module(npm_http_common).
--export([req_headers/3,res_headers/1,server_name/1]).
-req_headers(Etag,Modified,Headers)->
+-export([with_etag/3,with_gizp/2,res_headers/1,server_name/1]).
+with_etag(Etag,Modified,Headers)->
     List = [
         {ai_http,add_if_none_match,[Etag]},
         {ai_http,add_if_modified_since,[Modified]}
     ],
     ai_lists:run_pipe(List,[Headers]).
 
+with_gizp(Length,Headers)->
+    List = [
+        {ai_http,add_content_encoding,[gzip]},
+        {ai_http,add_content_length,[Length]}
+    ],
+    ai_lists:run_pipe(List,[Headers]).
 res_headers(Headers)-> 
     Exclued = [<<"set-cookie">>,<<"etag">>,<<"last-modified">>,
                <<"cf-cache-status">>,<<"accept-ranges">>,<<"cf-ray">>,<<"expect-ct">>],
