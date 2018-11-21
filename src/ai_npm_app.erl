@@ -44,5 +44,4 @@ create_db()->
                                                {attributes, record_info(fields, private_package)}]),
     {atomic,ok} = mnesia:create_table(tarball,[{disc_copies, [node()]}, {type,bag},
                                                {attributes, record_info(fields, tarball)}]),
-    ai_http_cache:initialize_mnesia_table(),
     ok.

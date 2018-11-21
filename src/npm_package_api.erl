@@ -85,19 +85,14 @@ fetch_with_private(Req)->
     {ScopeName,Version} = name_version(Req),
     case ai_mnesia_operation:one_or_none(npm_package_mnesia:find_private(ScopeName)) of 
          not_found -> fetch_with_cache(Req);
-         Record -> reply_version(Version,Record#private_package.meta,
+         Record -> reply(Version,Record#private_package.meta,
             ?PACKAGE_HEADERS,npm_http_common:server_name(Req))
     end.
   
 fetch_with_cache(Req)->
-    {_ScopeName,Version} = name_version(Req),
-    ServerName = npm_http_common:server_name(Req),
     Url = cowboy_req:path(Req),
     Headers = cowboy_req:headers(Req),
     case npm_package_task:run(Url,maps:to_list(Headers)) of
-        {hit,CacheKey,ResHeaders}->
-            io:format("Cache: [hit] ~p~n",[Url]),
-            reply(Url,ResHeaders,ServerName,CacheKey,Version);
         {data,ResHeaders,Data} -> {data,ResHeaders,Data};
         {data,Status,ResHeaders,Data} -> {data,Status,ResHeaders,Data};
         {no_data,Status,ResHeaders} -> {no_data,Status,ResHeaders};
@@ -114,7 +109,7 @@ fetch_with_cache(Req)->
  %%                               {undefined,erlang:binary_to_list(Host),Port},P,Q,F}),
  %%   NewDist = [{?TARBALL,erlang:list_to_binary(NewTarball)}] ++ proplists:delete(?TARBALL,Dist), 
  %%   [{?DIST,NewDist}] ++ proplists:delete(?DIST,Package).
-reply_version(undefined,Meta,ResHeaders,{_Scheme,_Host,_Port})->
+ reply(undefined,Meta,ResHeaders,{_Scheme,_Host,_Port})->
     %%Versions = npm_package_common:versions(Meta),
     %%NewVersions = lists:foldl(fun({V,P},Acc)->
     %%                                NewP = replace_with_host(Scheme,Host,Port,P),
@@ -125,7 +120,7 @@ reply_version(undefined,Meta,ResHeaders,{_Scheme,_Host,_Port})->
     Size = erlang:byte_size(Data),
     NewHeaders = npm_http_common:with_gizp(Size,ResHeaders),
     {data,NewHeaders,Data};
-reply_version(Version,Meta,ResHeaders,{_Scheme,_Host,_Port})->
+reply(Version,Meta,ResHeaders,{_Scheme,_Host,_Port})->
     Json = jsx:decode(Meta),
     case npm_package_common:version_info(Version,Json) of 
         undefined -> not_found;
@@ -135,12 +130,4 @@ reply_version(Version,Meta,ResHeaders,{_Scheme,_Host,_Port})->
             Size = erlang:byte_size(Data),
             NewHeaders = npm_http_common:with_gizp(Size,ResHeaders),
             {data,NewHeaders,Data}
-    end.
-reply(Url,ResHeaders,Http,Name,Version)->
-    case ai_mnesia_operation:one_or_none(npm_package_mnesia:find(Name)) of 
-        not_found -> 
-            ai_http_cache:uncache(Url),
-            not_found;
-        Record ->
-            reply_version(Version,Record#package.meta,ResHeaders,Http)
     end.

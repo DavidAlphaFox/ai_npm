@@ -36,16 +36,9 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-run(Url,Headers)-> npm_cache:run_cache(Url,{fun run_cache/3,[Url,Headers]}).
+run(Url,Headers)-> 	run_task(Url,[{headers,Headers}]).
 
-run_cache(_Url,_Headers,{hit,CacheKey,Headers})-> {hit,CacheKey,Headers};
-run_cache(Url,Headers,{expired,Etag,Modified})->
-	NewHeaders = npm_http_common:with_etag(Etag,Modified,Headers),
-	run_task(Url,[{headers,NewHeaders}]);
-run_cache(Url,Headers,not_found)->
-	run_task(Url,[{headers,Headers}]).
 run_task(Url,Ctx)->
-	%% Cache 没有找到，需要到Task队列中找一下
 	%% 会自动加锁解锁，函数在锁范围之外运行
 	npm_task_manager:find_task(Url,{fun run_task/3,[Url,Ctx]}).
 
@@ -170,16 +163,16 @@ handle_cast(_Request, State) ->
 	{noreply, NewState :: term(), Timeout :: timeout()} |
 	{noreply, NewState :: term(), hibernate} |
 	{stop, Reason :: normal | term(), NewState :: term()}.
-handle_info({response,fin,Status,Headers},#state{url = Url} = State)->
-	Result = cache(Url,Status,Headers),
+handle_info({response,fin,Status,Headers}, State)->
+	Result = {no_data,Status,Headers},
 	State1 = notify_waiters(Result,State),
 	{noreply,State1};
 handle_info({response,nofin,Status,Headers},State)->
 	{noreply,State#state{status = Status,headers = Headers}};
 handle_info({data,nofin,Data} ,#state{buffer = Buffer} = State)->
 	{noreply,State#state{buffer = <<Buffer/binary,Data/binary>>}};
-handle_info({data,fin,Data},#state{url = Url,status = Status,headers = Headers,buffer = Buffer} = State)->
-	Result = cache(Url,Status,Headers,<<Buffer/binary,Data/binary>>),
+handle_info({data,fin,Data},#state{status = Status,headers = Headers,buffer = Buffer} = State)->
+	Result = {data,Status,Headers,<<Buffer/binary,Data/binary>>},
 	State1 = notify_waiters(Result,State),
 	{noreply,State1};
 handle_info({'DOWN', _MRef, process, Pid, _Reason},#state{worker = Worker} = State )->
@@ -281,46 +274,6 @@ do_it(Url,Ctx,#state{monitors = M} = State)->
 	end,
 	poolboy:transaction(?NPM_TASK_POOL, RunningFun).
 
-
-cache(Url,Status,Headers)->
-	if 
-		Status == 304 ->
-			ai_http_cache:cache(Url,Headers),
-			case ai_http_cache:validate_hit(Url) of 
-				not_found -> {no_data,Status,Headers};
-				{expired,_Etag,_Modified} -> {no_data,Status,Headers};
-				Result -> Result
-			end;
-		true -> {no_data,Status,Headers}
-	end.
-cache(Url,Status,Headers,Data)->
-	if  
-		Status  == 200 -> 
-			Encoder = ai_http:content_encoding(Headers),
-			Data1 = 
-				case ai_http:decode_body(Encoder, Data) of 
-					{ok,Decoded} -> Decoded;
-					_ -> Data
-				end,
-			do_cache(Url,Headers,Data1);
-		true ->  {data,Status,Headers,Data}
-	end.
-do_cache(Url,Headers,Data)->
-	Meta = jsx:decode(Data),
-	CacheKey =
-		case proplists:get_value(<<"name">>,Meta) of
-			undefined -> undefined;
-			Name ->
-				ScopeName = npm_package_common:scope_name(Name),
-				{atomic,ok} = npm_package_mnesia:add(ScopeName,Data),
-				ScopeName
-		end,
-	case CacheKey of 
-		undefined -> {data,Headers,Data};
-		_ ->
-			ai_http_cache:cache(Url,CacheKey,Headers),
-			{hit,CacheKey,Headers}
-	end.
 notify_waiters(Result,#state{url = Url,waiters = W,worker = Worker, monitors = M})->
 	Self = self(),
 	npm_task_manager:deregister_task(Url,Self),
